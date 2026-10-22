@@ -1,4 +1,4 @@
-// Convex HTTP API for the rouvideo player.
+// Convex HTTP API for the unvideo player.
 //
 //   GET /api/health    – liveness probe
 //   GET /api/selftest  – runtime capability report (no secrets echoed)
@@ -74,7 +74,7 @@ const http = httpRouter();
 http.route({
   path: "/api/health",
   method: "GET",
-  handler: httpAction(async () => json({ ok: true, service: "rouvideo" })),
+  handler: httpAction(async () => json({ ok: true, service: "unvideo" })),
 });
 
 // Reports which primitives this runtime really offers, so a deploy problem is

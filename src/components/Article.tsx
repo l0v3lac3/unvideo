@@ -154,7 +154,7 @@ export function Article({
   // and let the router apply a remembered scroll offset once content exists.
   useEffect(() => {
     if (!article) return;
-    document.title = `${article.title} · rouvideo`;
+    document.title = `${article.title} · unvideo`;
     restoreScroll();
     return () => {
       document.title = BASE_TITLE;

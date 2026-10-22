@@ -1,4 +1,4 @@
-# AGENTS.md — rouvideo 项目规范
+# AGENTS.md — unvideo 项目规范
 
 本文件是本项目对 AI 编码助手（Hermes / Claude Code / Codex 等）的项目上下文。
 只放**属于这个项目**的内容：架构、命令、约定、部署。个人语气/风格不放这里
@@ -6,7 +6,7 @@
 
 ## 项目概览
 
-rouvideo：rou.video 无广告播放器 + 51吃瓜资讯视频站。
+unvideo：视频解析站（rou.video 无广告播放 + 51吃瓜资讯视频）。
 
 - **前端**：React 19 + TypeScript + Vite。静态构建，部署在 **GitHub Pages**
   （纯静态托管，无 SPA 回退）。线上：`https://l0v3lac3.github.io/rouvideo/`

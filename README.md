@@ -1,7 +1,7 @@
-# rouvideo
+# unvideo
 
-rou.video 无广告播放器 —— 由原 `rou-proxy-player.py` 单文件脚本重构为
-**React + TypeScript + Vite（前端）/ Convex（后端）** 的应用。
+视频解析站（rou.video 无广告播放 + 51吃瓜资讯视频）—— 由原 `rou-proxy-player.py`
+单文件脚本重构为 **React + TypeScript + Vite（前端）/ Convex（后端）** 的应用。
 
 - 前端是纯静态 SPA，部署在 **GitHub Pages**：https://l0v3lac3.github.io/rouvideo/
 - 后端跑在 **Convex**（HTTP actions），承担所有需要服务端能力的工作
@@ -36,18 +36,22 @@ rou.video 无广告播放器 —— 由原 `rou-proxy-player.py` 单文件脚本
 ## 目录结构
 
 ```
-rouvideo/
+unvideo/
 ├── convex/                  # 后端（Convex）
-│   ├── http.ts              # 路由：/api/resolve、/api/media、/api/health、/api/selftest
-│   ├── rou.ts               # 核心：PNG 解包、ev 解密、HMAC 签名、播放列表重写、SSRF 防护
+│   ├── http.ts              # 全部 HTTP 路由（见下节接口表）
+│   ├── rou.ts               # rou.video：PNG 解包、ev 解密、HMAC 签名、播放列表重写、SSRF 防护
+│   ├── cg51.ts              # 51吃瓜：节点发现、列表/文章抓取、AES 图片解密
 │   ├── schema.ts            # 数据模型（当前为空）
 │   └── _generated/          # Convex 自动生成（勿手改）
 ├── src/
-│   ├── App.tsx              # 页面外壳：URL 输入 + 说明
-│   ├── components/Player.tsx# HLS 播放器（hls.js 挂载、错误恢复、原生 HLS 回退）
+│   ├── App.tsx              # 页面外壳：双 tab（rou.video / 51吃瓜）、hash 路由驱动
+│   ├── main.tsx             # 入口
+│   ├── components/Player.tsx  # HLS 播放器（hls.js 挂载、错误恢复、原生 HLS 回退）
+│   ├── components/Feed.tsx  # 51吃瓜列表 + 上下双组分页
+│   ├── components/Article.tsx # 51吃瓜文章页（图集 + 内嵌播放）
+│   ├── lib/router.ts        # 手写 hash 路由（前进/后退/滚动恢复/深链）
 │   ├── lib/api.ts           # 后端 API 客户端
-│   ├── index.css            # 样式
-│   └── main.tsx             # 入口
+│   └── index.css            # 样式
 ├── public/favicon.svg
 ├── .github/workflows/deploy.yml  # GitHub Pages 部署
 ├── .env.example             # 环境变量清单
@@ -60,6 +64,10 @@ rouvideo/
 | --- | --- |
 | `GET /api/resolve?url=<视频页>` | 抓取页面 → 正则提取 `ev:{d,k}` → base64 + 逐字节减 k → JSON → 返回 `videoUrl`、**已签名的** `playlistUrl`、`thumbVttUrl`。仅允许 rou.video 域。 |
 | `GET /api/media?u=<b64url>&s=<hmac>` | 抓取目标 → PNG 解包 → 是播放列表则把其中所有 URI 重写为带签名的本接口地址后返回；是分片则直接回传。 |
+| `GET /api/node` | 发现 51吃瓜当前内容节点（主站反爬严格，节点发现必须服务端做）+ 分类导航。 |
+| `GET /api/feed?path=&page=` | 抓取 51吃瓜指定分类/归档页的列表，封面图转签名 URL。 |
+| `GET /api/article?path=/archives/<id>/` | 文章元数据 + 图集 + 内嵌视频（均转签名 URL）。 |
+| `GET /api/img?u=<b64url>&s=<hmac>` | 抓取并 AES 解密的图片字节流（签名方案同 `/api/media`）。 |
 | `GET /api/health` | 存活探测。 |
 | `GET /api/selftest` | 运行时能力自检（fflate / Web Crypto / 密钥是否配置），不回显密钥。 |
 

@@ -25,7 +25,7 @@ export type Route =
 
 export type FeedRoute = Extract<Route, { kind: 'feed' }>;
 
-const MARK = 'rouvideo';
+const MARK = 'unvideo';
 const HOME_PAGE = /^\/page\/(\d+)\/?$/;
 const CATEGORY = /^\/category\/([a-z0-9_-]+)(?:\/(\d+))?\/?$/;
 const ARTICLE = /^\/archives\/(\d+)\/?$/;
