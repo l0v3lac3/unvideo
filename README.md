@@ -3,7 +3,7 @@
 视频解析站（rou.video 无广告播放 + 51吃瓜资讯视频）—— 由原 `rou-proxy-player.py`
 单文件脚本重构为 **React + TypeScript + Vite（前端）/ Convex（后端）** 的应用。
 
-- 前端是纯静态 SPA，部署在 **GitHub Pages**：https://l0v3lac3.github.io/rouvideo/
+- 前端是纯静态 SPA，部署在 **GitHub Pages**：https://l0v3lac3.github.io/unvideo/
 - 后端跑在 **Convex**（HTTP actions），承担所有需要服务端能力的工作
 
 ## 为什么必须有服务端

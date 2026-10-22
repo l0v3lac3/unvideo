@@ -9,7 +9,7 @@
 unvideo：视频解析站（rou.video 无广告播放 + 51吃瓜资讯视频）。
 
 - **前端**：React 19 + TypeScript + Vite。静态构建，部署在 **GitHub Pages**
-  （纯静态托管，无 SPA 回退）。线上：`https://l0v3lac3.github.io/rouvideo/`
+  （纯静态托管，无 SPA 回退）。线上：`https://l0v3lac3.github.io/unvideo/`
 - **后端**：Convex HTTP actions（`convex/`）。前端只通过 HTTP 调自己的
   `/api/*`（`VITE_CONVEX_SITE_URL`，`.convex.site` 域），当前**没有**
   `ConvexReactClient`；若将来引入 query/mutation 才需要它，且要用
