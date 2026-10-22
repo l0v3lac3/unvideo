@@ -168,7 +168,7 @@ export default function App() {
 
   return (
     <main className="app">
-      {/* Frozen top: identity + site switch + back + category nav. Every
+      {/* Page top: identity + site switch + back + category nav. Every
           feed/article page opens with this same header, so entering any
           article or video shows a unified page top. Categories come from the
           active source's siteInfo, so they never leak across sites. */}
@@ -310,7 +310,7 @@ export default function App() {
 }
 
 /**
- * Grouped category nav (the frozen bar under the site switcher). The first
+ * Grouped category nav (the bar under the site switcher). The first
  * group (primary, e.g. rou 主分類 / cg51 分类) shows its top-level buttons
  * inline; a primary button with `children` carries a caret that reveals the
  * subcategories on the row below. Other groups (题材 / 属性, 分類精選) are
