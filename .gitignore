@@ -22,6 +22,7 @@ convex/tart
 # Local AI agent state (Convex CLI generated)
 .claude/
 .agents/
+.playwright-mcp/
 
 # Editor directories and files
 .vscode/*
