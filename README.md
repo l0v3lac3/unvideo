@@ -37,19 +37,27 @@
 ```
 unvideo/
 ├── convex/                  # 后端（Convex）
-│   ├── http.ts              # 全部 HTTP 路由（见下节接口表）
-│   ├── rou.ts               # 视频源：PNG 解包、ev 解密、HMAC 签名、播放列表重写、SSRF 防护
-│   ├── cg51.ts              # 内容源：节点发现、列表/文章抓取、AES 图片解密
+│   ├── http.ts              # 薄 HTTP 分发器（见下节接口表）
+│   ├── proxy.ts             # 共享媒体代理：UA fetch、SSRF 防护、HMAC 签名、
+│   │                        # 播放列表重写
+│   ├── sources/             # 站点适配器（一个站点一个文件）
+│   │   ├── types.ts         # 归一化数据模型 + Source 接口
+│   │   ├── index.ts         # 站点注册表
+│   │   ├── rou.ts           # 视频源：抓取、PNG 解包、ev 解密、播放列表重写
+│   │   └── cg51.ts          # 内容源：节点发现、列表/文章抓取、AES 图片解密
 │   ├── schema.ts            # 数据模型（当前为空）
 │   └── _generated/          # Convex 自动生成（勿手改）
 ├── src/
-│   ├── App.tsx              # 页面外壳：双 tab、hash 路由驱动
+│   ├── App.tsx              # 页面外壳：站点切换栏、首页卡片、hash 路由驱动
 │   ├── main.tsx             # 入口
 │   ├── components/Player.tsx  # HLS 播放器（hls.js 挂载、错误恢复、原生 HLS 回退）
+│   ├── components/Home.tsx  # 首页：站点卡片
 │   ├── components/Feed.tsx  # 内容列表 + 上下双组分页
 │   ├── components/Article.tsx # 文章页（图集 + 内嵌播放）
-│   ├── lib/router.ts        # 手写 hash 路由（前进/后退/滚动恢复/深链）
-│   ├── lib/api.ts           # 后端 API 客户端
+│   ├── lib/router.ts        # 手写 hash 路由（站点前缀、旧路由映射、滚动恢复）
+│   ├── lib/sources.ts       # 前端站点注册表（与 convex/sources/index.ts 对应）
+│   ├── lib/api.ts           # 后端 API 客户端（带 src 参数）
+│   ├── lib/types.ts         # 前端归一化模型（镜像 convex/sources/types.ts）
 │   └── index.css            # 样式
 ├── public/favicon.svg
 ├── .github/workflows/deploy.yml  # GitHub Pages 部署
@@ -57,23 +65,28 @@ unvideo/
 └── index.html
 ```
 
+**扩展模式**：新站点 = `convex/sources/<site>.ts`（实现 `Source` 接口）+
+`convex/sources/index.ts` 与 `src/lib/sources.ts` 各加一行；`http.ts`、视图
+组件、路由都不需要改。
+
 ## 后端接口
 
 | 接口 | 说明 |
 | --- | --- |
-| `GET /api/resolve?url=<视频页>` | 抓取视频页 → 正则提取 `ev:{d,k}` → base64 + 逐字节减 k → JSON → 返回 `videoUrl`、**已签名的** `playlistUrl`、`thumbVttUrl`。 |
-| `GET /api/media?u=<b64url>&s=<hmac>` | 抓取目标 → PNG 解包 → 是播放列表则把其中所有 URI 重写为带签名的本接口地址后返回；是分片则直接回传。 |
-| `GET /api/node` | 发现当前内容节点 + 分类导航（主站反爬严格，节点发现必须服务端做）。 |
-| `GET /api/feed?path=&page=` | 抓取指定分类/归档页的列表，封面图转签名 URL。 |
-| `GET /api/article?path=/archives/<id>/` | 文章元数据 + 图集 + 内嵌视频（均转签名 URL）。 |
-| `GET /api/img?u=<b64url>&s=<hmac>` | 抓取并 AES 解密的图片字节流（签名方案同 `/api/media`）。 |
+| `GET /api/site?src=<站点>` | 站点信息：内容节点 + 分类导航（feed 源）。 |
+| `GET /api/video?src=<站点>&url=<视频页>` | 抓取视频页 → 返回 `videoUrl`、**已签名的** `playlistUrl`、`thumbVttUrl`。 |
+| `GET /api/feed?src=<站点>&path=&page=` | 抓取指定分类/归档页的列表，封面图转签名 URL。 |
+| `GET /api/article?src=<站点>&path=/archives/<id>/` | 文章元数据 + 归一化 body 块 + 内嵌视频（均转签名 URL）。 |
+| `GET /api/media?src=<站点>&u=<b64url>&s=<hmac>` | 抓取目标 → 源特定转换（如 PNG 解包）→ 是播放列表则把其中所有 URI 重写为带签名的本接口地址后返回；是分片则直接回传。 |
+| `GET /api/img?src=<站点>&u=<b64url>&s=<hmac>` | 抓取并转换（如 AES 解密）的图片字节流（签名方案同 `/api/media`）。 |
 | `GET /api/health` | 存活探测。 |
 | `GET /api/selftest` | 运行时能力自检（fflate / Web Crypto / 密钥是否配置），不回显密钥。 |
+| 兼容（无 `src` 参数） | `/api/resolve?url=`（= `/api/video`）、`/api/node`（cg51 旧格式）、`/api/feed`、`/api/article`、`/api/media`、`/api/img` —— 旧前端/旧书签继续可用。 |
 
 设计要点：
 
 - **签名防滥用**：`/api/media` 的 URL 经 HMAC-SHA256 签名（密钥为 Convex 环境变量
-  `ROU_PROXY_SECRET`），因此本部署不会变成公开代理。未配置密钥时退化为域名白名单。
+  `PROXY_SECRET`），因此本部署不会变成公开代理。未配置密钥时退化为域名白名单。
 - **绝对地址**：重写出的分片地址使用后端自身 origin（取 `req.url`）。因为前端在
   GitHub Pages、后端在 Convex，**绝对不能用根相对路径**——否则浏览器会把
   `/api/media` 解析到页面所在域。
@@ -97,7 +110,7 @@ npm run dev             # 终端 2：前端（默认 http://localhost:5173）
 签名密钥配置（值不要提交到仓库）：
 
 ```bash
-npx convex env set ROU_PROXY_SECRET "$(openssl rand -hex 32)"
+npx convex env set PROXY_SECRET "$(openssl rand -hex 32)"
 ```
 
 ## 检查与构建
@@ -121,7 +134,7 @@ npm run build          # tsc -b && vite build（产物在 dist/）
 | `VITE_CONVEX_URL` | 客户端地址 `https://<deployment>.convex.cloud`（当前未使用，留给将来的 query/mutation） |
 | `CONVEX_DEPLOYMENT` | CLI 用来定位部署，由 `npx convex dev` 写入 |
 
-Convex 环境变量（服务端，不在仓库里）：`ROU_PROXY_SECRET`。
+Convex 环境变量（服务端，不在仓库里）：`PROXY_SECRET`（媒体代理签名密钥）。
 
 ## 部署
 

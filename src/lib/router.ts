@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
-import { isRouPageUrl } from './api';
+import { sourceById } from './sources';
 
 /**
  * Minimal hash router.
@@ -10,20 +10,27 @@ import { isRouPageUrl } from './api';
  * the browser's back/forward buttons move through the app instead of leaving
  * it.
  *
- * Canonical hashes mirror the 51吃瓜 paths so they are easy to read:
- *   #/                      home feed, page 1
- *   #/page/2/               home feed, page 2
- *   #/category/<slug>/      category feed, page 1
- *   #/category/<slug>/2/    category feed, page 2
- *   #/archives/<id>/        article
- *   #/rou?url=<page-url>    rou.video player
+ * Routes are prefixed with the source id (see `lib/sources.ts`):
+ *   #/                      home (site cards)
+ *   #/<src>/                feed source home, page 1
+ *   #/<src>/page/2/         feed source home, page 2
+ *   #/<src>/category/x/     feed source category, page 1
+ *   #/<src>/category/x/2/   feed source category, page 2
+ *   #/<src>/archives/123/   article
+ *   #/<src>?url=<page-url>  video source player
+ *
+ * Legacy (pre-source-prefix) hashes keep working: #/archives/123/,
+ * #/category/x/[n]/, #/page/n/ all map to the 'cg51' source, and
+ * #/rou?url=... is the 'rou' source player.
  */
 export type Route =
-  | { kind: 'feed'; path: string; page: number }
-  | { kind: 'article'; path: string }
-  | { kind: 'rou'; url: string | null };
+  | { kind: 'home' }
+  | { kind: 'feed'; src: string; path: string; page: number }
+  | { kind: 'article'; src: string; path: string }
+  | { kind: 'play'; src: string; url: string | null };
 
 export type FeedRoute = Extract<Route, { kind: 'feed' }>;
+export type PlayRoute = Extract<Route, { kind: 'play' }>;
 
 const MARK = 'unvideo';
 const HOME_PAGE = /^\/page\/(\d+)\/?$/;
@@ -35,14 +42,24 @@ type RouterState = { app: typeof MARK; depth: number };
 /** URL for a route, always in canonical form. */
 export function buildHash(route: Route): string {
   switch (route.kind) {
+    case 'home':
+      return '#/';
     case 'article':
-      return `#${route.path}`;
-    case 'rou':
-      return route.url ? `#/rou?url=${encodeURIComponent(route.url)}` : '#/rou';
+      return `#/${route.src}${route.path}`;
+    case 'play':
+      return route.url
+        ? `#/${route.src}?url=${encodeURIComponent(route.url)}`
+        : `#/${route.src}`;
     case 'feed': {
       const base = route.path === '/' ? '' : route.path.replace(/\/+$/, '');
-      if (!base) return route.page > 1 ? `#/page/${route.page}/` : '#/';
-      return route.page > 1 ? `#${base}/${route.page}/` : `#${base}/`;
+      if (!base) {
+        return route.page > 1
+          ? `#/${route.src}/page/${route.page}/`
+          : `#/${route.src}/`;
+      }
+      return route.page > 1
+        ? `#/${route.src}${base}/${route.page}/`
+        : `#/${route.src}${base}/`;
     }
   }
 }
@@ -50,12 +67,14 @@ export function buildHash(route: Route): string {
 /** Key identifying a route for scroll-position bookkeeping. */
 export function routeKey(route: Route): string {
   switch (route.kind) {
+    case 'home':
+      return 'home';
     case 'article':
-      return `article:${route.path}`;
-    case 'rou':
-      return `rou:${route.url ?? ''}`;
+      return `article:${route.src}:${route.path}`;
+    case 'play':
+      return `play:${route.src}:${route.url ?? ''}`;
     case 'feed':
-      return `feed:${route.path}:${route.page}`;
+      return `feed:${route.src}:${route.path}:${route.page}`;
   }
 }
 
@@ -63,6 +82,14 @@ function clampPage(value: number): number {
   return Number.isFinite(value) && value >= 1 ? Math.floor(value) : 1;
 }
 
+function feedRoute(src: string, path: string, page: number): Route {
+  return { kind: 'feed', src, path, page };
+}
+
+/**
+ * Parse the current hash into a route. Legacy hashes (no source prefix) map
+ * to the 'cg51' source so old bookmarks keep working.
+ */
 export function parseHash(hash: string): { route: Route; canonical: string } {
   const raw = hash.replace(/^#/, '') || '/';
   const queryAt = raw.indexOf('?');
@@ -72,48 +99,78 @@ export function parseHash(hash: string): { route: Route; canonical: string } {
   let path = queryAt === -1 ? raw : raw.slice(0, queryAt);
   if (!path.startsWith('/')) path = `/${path}`;
 
-  if (path === '/rou' || path === '/rou/') {
-    const url = query.get('url');
+  // New-style route: first segment is a source id.
+  const firstSeg = path.split('/').filter(Boolean)[0] ?? '';
+  const source = sourceById(firstSeg);
+  if (source) {
+    if (source.kind === 'video') {
+      const url = query.get('url');
+      const route: Route = {
+        kind: 'play',
+        src: source.id,
+        url: url && source.matchPageUrl?.(url) ? url.trim() : null,
+      };
+      return { route, canonical: buildHash(route) };
+    }
+    const rest = path.slice(1 + firstSeg.length);
+    if (rest === '' || rest === '/') {
+      const route = feedRoute(source.id, '/', 1);
+      return { route, canonical: buildHash(route) };
+    }
+    const page = rest.match(HOME_PAGE);
+    if (page) {
+      const route = feedRoute(source.id, '/', clampPage(Number(page[1])));
+      return { route, canonical: buildHash(route) };
+    }
+    const cat = rest.match(CATEGORY);
+    if (cat) {
+      const route = feedRoute(
+        source.id,
+        `/category/${cat[1]}/`,
+        clampPage(Number(cat[2] ?? 1)),
+      );
+      return { route, canonical: buildHash(route) };
+    }
+    const art = rest.match(ARTICLE);
+    if (art) {
+      const route: Route = {
+        kind: 'article',
+        src: source.id,
+        path: `/archives/${art[1]}/`,
+      };
+      return { route, canonical: buildHash(route) };
+    }
+    // Unknown path under a known source: fall back to its home.
+    const route = feedRoute(source.id, '/', 1);
+    return { route, canonical: buildHash(route) };
+  }
+
+  // Legacy routes (no source prefix) — all map to the 'cg51' source.
+  const art = path.match(ARTICLE);
+  if (art) {
     const route: Route = {
-      kind: 'rou',
-      url: url && isRouPageUrl(url) ? url.trim() : null,
+      kind: 'article',
+      src: 'cg51',
+      path: `/archives/${art[1]}/`,
     };
     return { route, canonical: buildHash(route) };
   }
-
-  const article = path.match(ARTICLE);
-  if (article) {
-    const route: Route = { kind: 'article', path: `/archives/${article[1]}/` };
+  const cat = path.match(CATEGORY);
+  if (cat) {
+    const route = feedRoute(
+      'cg51',
+      `/category/${cat[1]}/`,
+      clampPage(Number(cat[2] ?? 1)),
+    );
     return { route, canonical: buildHash(route) };
   }
-
-  const category = path.match(CATEGORY);
-  if (category) {
-    const route: Route = {
-      kind: 'feed',
-      path: `/category/${category[1]}/`,
-      page: clampPage(Number(category[2] ?? 1)),
-    };
-    return { route, canonical: buildHash(route) };
-  }
-
   const homePage = path.match(HOME_PAGE);
   if (homePage) {
-    const route: Route = {
-      kind: 'feed',
-      path: '/',
-      page: clampPage(Number(homePage[1])),
-    };
+    const route = feedRoute('cg51', '/', clampPage(Number(homePage[1])));
     return { route, canonical: buildHash(route) };
   }
 
-  if (path === '/' || path === '') {
-    const route: Route = { kind: 'feed', path: '/', page: 1 };
-    return { route, canonical: buildHash(route) };
-  }
-
-  // Unknown hash: fall back to the home feed instead of rendering nothing.
-  const route: Route = { kind: 'feed', path: '/', page: 1 };
+  const route: Route = { kind: 'home' };
   return { route, canonical: buildHash(route) };
 }
 

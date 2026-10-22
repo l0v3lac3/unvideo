@@ -1,19 +1,25 @@
 import { useEffect, useState } from 'react';
-import { getFeed, type FeedItem, type FeedResult } from '../lib/api';
+import { getFeed } from '../lib/api';
+import type { FeedItem, FeedPage } from '../lib/types';
 
 /**
- * Feed pages are kept for the session so back/forward and tab switches repaint
- * the list immediately (and scroll restoration has a stable height to land on).
- * A fresh fetch always runs in the background to pick up new posts.
+ * Feed pages are kept for the session so back/forward and site switches
+ * repaint the list immediately (and scroll restoration has a stable height to
+ * land on). A fresh fetch always runs in the background to pick up new posts.
  */
-const feedCache = new Map<string, FeedResult>();
+const feedCache = new Map<string, FeedPage>();
 const FEED_CACHE_LIMIT = 60;
 
-function cacheKey(node: string, path: string, page: number): string {
-  return `${node}|${path}|${page}`;
+function cacheKey(
+  src: string,
+  node: string,
+  path: string,
+  page: number,
+): string {
+  return `${src}|${node}|${path}|${page}`;
 }
 
-function remember(key: string, result: FeedResult) {
+function remember(key: string, result: FeedPage) {
   feedCache.set(key, result);
   while (feedCache.size > FEED_CACHE_LIMIT) {
     const oldest = feedCache.keys().next().value;
@@ -51,15 +57,17 @@ function FeedCard({
           {item.title}
         </h3>
         <div className="feed-meta">
-          {item.categories.slice(0, 3).map((c) => (
-            <span className="feed-cat" key={c}>
-              {c}
+          {(item.tags ?? []).slice(0, 3).map((t) => (
+            <span className="feed-cat" key={t}>
+              {t}
             </span>
           ))}
         </div>
         <div className="feed-foot">
-          <span>{date}</span>
-          {item.views ? <span>{item.views}万浏览</span> : null}
+          {date ? <span>{date}</span> : null}
+          {(item.meta ?? []).map((m) => (
+            <span key={m}>{m}</span>
+          ))}
         </div>
       </div>
     </button>
@@ -129,29 +137,31 @@ function PageControls({
 }
 
 /**
- * Paginated feed (home or category). Fetches through the Convex backend so the
- * browser never needs CORS to the node, and hands a chosen item up to the
- * parent to open as an article.
+ * Paginated feed (home or category) for one feed source. Fetches through the
+ * Convex backend so the browser never needs CORS to the node, and hands a
+ * chosen item up to the parent to open as an article.
  *
  * `page` is owned by the route (not local state) so the browser back button and
- * in-app paging stay in sync. Mount with a key that includes path+page to reset
- * the view when the route changes.
+ * in-app paging stay in sync. Mount with a key that includes src+path+page to
+ * reset the view when the route changes.
  */
 export function Feed({
+  src,
   path,
   page,
   node,
   onOpen,
   onPageChange,
 }: {
+  src: string;
   path: string;
   page: number;
   node: string;
   onOpen: (item: FeedItem) => void;
   onPageChange: (page: number) => void;
 }) {
-  const key = cacheKey(node, path, page);
-  const [data, setData] = useState<FeedResult | null>(
+  const key = cacheKey(src, node, path, page);
+  const [data, setData] = useState<FeedPage | null>(
     () => feedCache.get(key) ?? null,
   );
   const [loading, setLoading] = useState(() => !feedCache.has(key));
@@ -159,7 +169,7 @@ export function Feed({
 
   useEffect(() => {
     let cancelled = false;
-    getFeed(path, page, node)
+    getFeed(src, path, page, node)
       .then((res) => {
         if (cancelled) return;
         remember(key, res);
@@ -174,7 +184,7 @@ export function Feed({
     return () => {
       cancelled = true;
     };
-  }, [key, path, page, node]);
+  }, [key, src, path, page, node]);
 
   const totalPages = data?.totalPages ?? 0;
 

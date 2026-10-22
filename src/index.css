@@ -44,6 +44,11 @@ body {
   color: var(--accent);
 }
 
+.logo {
+  color: inherit;
+  text-decoration: none;
+}
+
 .tagline {
   margin: 4px 0 0;
   color: var(--muted);
@@ -184,14 +189,15 @@ code {
 }
 
 /* ------------------------------------------------------------------ *
- * Tabs (cg51 / rou.video)
+ * Site switch bar (header) + home cards
  * ------------------------------------------------------------------ */
-.tabs {
+.sites {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.tab {
+.site {
   flex: 1;
   padding: 9px 12px;
   font-size: 0.9rem;
@@ -201,12 +207,59 @@ code {
   border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
+  text-align: center;
+  text-decoration: none;
 }
 
-.tab.active {
+.site.active {
   color: #fff;
   background: var(--accent);
   border-color: var(--accent);
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.home-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px 16px;
+  text-align: left;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.home-card:hover {
+  border-color: var(--accent);
+}
+
+.home-card-kind {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.home-card-title {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--text);
+}
+
+.home-card-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .node-bar {

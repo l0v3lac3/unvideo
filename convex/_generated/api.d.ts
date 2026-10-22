@@ -8,9 +8,12 @@
  * @module
  */
 
-import type * as cg51 from "../cg51.js";
 import type * as http from "../http.js";
-import type * as rou from "../rou.js";
+import type * as proxy from "../proxy.js";
+import type * as sources_cg51 from "../sources/cg51.js";
+import type * as sources_index from "../sources/index.js";
+import type * as sources_rou from "../sources/rou.js";
+import type * as sources_types from "../sources/types.js";
 
 import type {
   ApiFromModules,
@@ -19,9 +22,12 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  cg51: typeof cg51;
   http: typeof http;
-  rou: typeof rou;
+  proxy: typeof proxy;
+  "sources/cg51": typeof sources_cg51;
+  "sources/index": typeof sources_index;
+  "sources/rou": typeof sources_rou;
+  "sources/types": typeof sources_types;
 }>;
 
 /**

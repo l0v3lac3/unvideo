@@ -1,28 +1,30 @@
 import { useEffect, useState } from 'react';
 import { Player, type StreamSource } from './Player';
-import {
-  getArticle,
-  type Cg51Article,
-  type Cg51BodyBlock,
-  type Cg51Rec,
-} from '../lib/api';
+import { getArticle } from '../lib/api';
 import { restoreScroll } from '../lib/router';
+import type {
+  Article,
+  ArticleBlock,
+  Recommendation,
+  VideoBlock,
+} from '../lib/types';
 
 /**
- * Parsed articles are cached for the session: returning via back/forward (or a
- * recommendation) repaints instantly instead of showing a blank page while the
- * node is scraped again. A background revalidation still runs on every mount.
+ * Parsed articles are cached for the session: returning via back/forward (or
+ * a recommendation) repaints instantly instead of showing a blank page while
+ * the node is scraped again. A background revalidation still runs on every
+ * mount.
  */
-const articleCache = new Map<string, Cg51Article>();
+const articleCache = new Map<string, Article>();
 const ARTICLE_CACHE_LIMIT = 30;
 /** Original <title>, restored when leaving the article. */
 const BASE_TITLE = document.title;
 
-function cacheKey(node: string, path: string): string {
-  return `${node}|${path}`;
+function cacheKey(src: string, path: string): string {
+  return `${src}|${path}`;
 }
 
-function rememberArticle(key: string, article: Cg51Article) {
+function rememberArticle(key: string, article: Article) {
   articleCache.set(key, article);
   while (articleCache.size > ARTICLE_CACHE_LIMIT) {
     const oldest = articleCache.keys().next().value;
@@ -32,16 +34,15 @@ function rememberArticle(key: string, article: Cg51Article) {
 }
 
 /**
- * Article detail in the original site's layout: metadata up top, then the
- * ordered body (paragraphs, headings, images, videos and recommendation
- * entries interleaved exactly as on 51吃瓜). Station promo posts (isPromo)
- * render their text but no player.
+ * Article detail: metadata up top, then the normalized body blocks (text,
+ * headings, quotes, images, videos and recommendation entries interleaved in
+ * source order). Station promo posts (promo) render their text but no player.
  *
- * The video source for a `video` block is derived from the parsed article:
+ * The video source for a `video` block:
  *  - `video.type === 'hls'` → hls.js against the m3u8 directly
  *  - otherwise → progressive `video.src`
  */
-function videoSource(v: Cg51Article['video']): StreamSource | null {
+function videoSource(v: VideoBlock | null | undefined): StreamSource | null {
   return v
     ? {
         kind: 'url',
@@ -55,7 +56,7 @@ function RecCard({
   rec,
   onOpen,
 }: {
-  rec: Cg51Rec;
+  rec: Recommendation;
   onOpen: (p: string) => void;
 }) {
   return (
@@ -78,13 +79,13 @@ function RecCard({
 function BodyBlockView({
   block,
   index,
-  node,
+  src,
   path,
   onOpen,
 }: {
-  block: Cg51BodyBlock;
+  block: ArticleBlock;
   index: number;
-  node: string;
+  src: string;
   path: string;
   onOpen: (p: string) => void;
 }) {
@@ -106,7 +107,7 @@ function BodyBlockView({
       if (!source) return null;
       return (
         <Player
-          key={`${node}${path}#${index}${block.video.id || block.video.url}`}
+          key={`${src}${path}#${index}${block.video.id || block.video.url}`}
           source={source}
         />
       );
@@ -119,23 +120,26 @@ function BodyBlockView({
 }
 
 export function Article({
+  src,
   path,
   node,
   onOpenPath,
 }: {
+  src: string;
   path: string;
+  /** Content node (from site info) — passed to the backend request. */
   node: string;
   onOpenPath: (path: string) => void;
 }) {
-  const key = cacheKey(node, path);
-  const [article, setArticle] = useState<Cg51Article | null>(
+  const key = cacheKey(src, path);
+  const [article, setArticle] = useState<Article | null>(
     () => articleCache.get(key) ?? null,
   );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getArticle(path, node)
+    getArticle(src, path, node)
       .then((res) => {
         if (cancelled) return;
         rememberArticle(key, res);
@@ -148,7 +152,7 @@ export function Article({
     return () => {
       cancelled = true;
     };
-  }, [key, path, node]);
+  }, [key, src, path, node]);
 
   // Keep the tab title in sync (useful when several articles are in history)
   // and let the router apply a remembered scroll offset once content exists.
@@ -161,8 +165,8 @@ export function Article({
     };
   }, [article]);
 
-  // Fallback for the legacy shape (no ordered body): old description+gallery.
-  const hasBody = !!article?.body.length;
+  // Fallback for articles without body blocks: description + player + gallery.
+  const hasBody = !!article?.blocks.length;
 
   return (
     <section className="article">
@@ -174,7 +178,7 @@ export function Article({
         <>
           <header className="article-header">
             <h1 className="article-title">{article.title}</h1>
-            {article.isPromo ? (
+            {article.promo ? (
               <span className="promo-badge">站点活动 / 广告</span>
             ) : null}
             <dl className="article-meta">
@@ -190,13 +194,13 @@ export function Article({
                   <dd>{new Date(article.published).toLocaleString('zh-CN')}</dd>
                 </>
               ) : null}
-              {article.categories.length ? (
+              {article.categories?.length ? (
                 <>
                   <dt>栏目</dt>
                   <dd>{article.categories.join(' / ')}</dd>
                 </>
               ) : null}
-              {article.tags.length ? (
+              {article.tags?.length ? (
                 <>
                   <dt>标签</dt>
                   <dd className="article-tags">
@@ -213,12 +217,12 @@ export function Article({
 
           {hasBody ? (
             <div className="article-body">
-              {article.body.map((block, i) => (
+              {article.blocks.map((block, i) => (
                 <BodyBlockView
                   key={i}
                   block={block}
                   index={i}
-                  node={article.node}
+                  src={article.src}
                   path={path}
                   onOpen={onOpenPath}
                 />
@@ -231,13 +235,13 @@ export function Article({
               ) : null}
               {videoSource(article.video) ? (
                 <Player
-                  key={`${article.node}${path}`}
+                  key={`${src}${path}`}
                   source={videoSource(article.video)!}
                 />
               ) : (
                 <p className="status">该文章没有可解析的视频。</p>
               )}
-              {article.images.length ? (
+              {article.images?.length ? (
                 <div className="gallery">
                   {article.images.map((img, i) => (
                     <figure className="article-figure" key={i}>

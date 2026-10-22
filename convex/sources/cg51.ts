@@ -24,7 +24,17 @@
  *    with a *fresh* auth_key on every page render, so the article is re-fetched
  *    server-side each time it is opened.
  */
-import { HttpError, b64urlEncode, sign } from "./rou";
+
+import { HttpError } from "../proxy";
+import type {
+  Article,
+  FeedItem,
+  FeedPage,
+  SiteCategory,
+  SiteInfo,
+  Source,
+  VideoBlock,
+} from "./types";
 
 export const CG51_LANDING = "https://cg51.com";
 export const DEFAULT_NODE = "https://51qingliang.com";
@@ -214,7 +224,7 @@ export async function resolveNode(): Promise<NodeInfo> {
  * Feed / list parsing
  * ------------------------------------------------------------------ */
 
-export type FeedItem = {
+export type RawFeedItem = {
   id: string;
   url: string;
   title: string;
@@ -225,12 +235,12 @@ export type FeedItem = {
   views: string;
 };
 
-export type FeedResult = {
+export type RawFeedResult = {
   node: string;
   path: string;
   page: number;
   totalPages: number;
-  items: FeedItem[];
+  items: RawFeedItem[];
 };
 
 export type Cg51Category = { slug: string; name: string };
@@ -266,9 +276,9 @@ const ARTICLE_BLOCK = /<article itemscope itemtype="http:\/\/schema.org\/BlogPos
 const ARCHIVE_PATH = /itemprop="url mainEntityOfPage" content="(\/archives\/\d+\/)"/;
 
 /** Parse one feed/list page (home or category) into items + total pages. */
-export function parseFeed(html: string, node: string, path: string, page: number): FeedResult {
+export function parseFeed(html: string, node: string, path: string, page: number): RawFeedResult {
   const base = node.replace(/\/+$/, "");
-  const items: FeedItem[] = [];
+  const items: RawFeedItem[] = [];
   for (const block of html.match(ARTICLE_BLOCK) ?? []) {
     const url = block.match(ARCHIVE_PATH);
     if (!url) continue;
@@ -710,7 +720,9 @@ export function isCg51ImageHost(host: string): boolean {
  * AES-128-CBC decrypt raw bytes (PKCS7). The 51吃瓜 image CDN delivers the
  * ciphertext directly (no base64 wrapper).
  */
-export async function decryptCg51Image(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {
+export async function decryptCg51Image(data: Uint8Array): Promise<Uint8Array> {
+  // Copy onto a fresh ArrayBuffer (crypto.subtle requires one).
+  const bytes = new Uint8Array(data);
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(CG51_IMG_KEY),
@@ -720,25 +732,10 @@ export async function decryptCg51Image(data: Uint8Array<ArrayBuffer>): Promise<U
   );
   const iv = new TextEncoder().encode(CG51_IMG_IV);
   return new Uint8Array(
-    await crypto.subtle.decrypt({ name: "AES-CBC", iv }, key, data),
+    await crypto.subtle.decrypt({ name: "AES-CBC", iv }, key, bytes),
   );
 }
 
-/**
- * Build the signed /api/img URL that will decrypt-and-stream `target`.
- * Mirrors rou.ts `mediaPath`: absolute, on this deployment's own origin.
- */
-export async function imgPath(
-  secret: string | undefined,
-  origin: string,
-  target: string,
-): Promise<string> {
-  const encoded = b64urlEncode(target);
-  const query = secret
-    ? `u=${encoded}&s=${await sign(secret, target)}`
-    : `u=${encoded}`;
-  return `${origin.replace(/\/+$/, "")}/api/img?${query}`;
-}
 
 /** Fetch a path on the current content node with a browser UA. */
 export async function fetchNodeText(path: string, node: string | null = null): Promise<string> {
@@ -762,4 +759,124 @@ export function assertArchivePath(raw: string): string {
     throw new HttpError(400, "article path must look like /archives/123/");
   }
   return p;
+}
+
+/* ------------------------------------------------------------------ *
+ * Source adapter — normalized models for the dispatcher + frontend.
+ * ------------------------------------------------------------------ */
+
+function toVideoBlock(v: Cg51Video | null | undefined): VideoBlock | undefined {
+  if (!v) return undefined;
+  return { type: v.type === "hls" ? "hls" : "mp4", url: v.url, id: v.id || undefined };
+}
+
+/** Map a parsed article onto the shared Article model. */
+function toArticle(path: string, a: Cg51Article): Article {
+  return {
+    src: "cg51",
+    path,
+    title: a.title,
+    description: a.description || undefined,
+    author: a.author || undefined,
+    published: a.published || undefined,
+    modified: a.modified || undefined,
+    categories: a.categories,
+    tags: a.tags,
+    cover: a.cover || undefined,
+    images: a.images,
+    video: toVideoBlock(a.video),
+    blocks: a.body.map((b) => {
+      if (b.type === "video") return { type: "video" as const, video: toVideoBlock(b.video)! };
+      if (b.type === "rec")
+        return {
+          type: "rec" as const,
+          rec: { path: b.rec.path, title: b.rec.title, cover: b.rec.cover || undefined, desc: b.rec.desc || undefined },
+        };
+      if (b.type === "img") return { type: "img" as const, url: b.url };
+      if (b.type === "h") return { type: "h" as const, level: b.level, text: b.text };
+      if (b.type === "quote") return { type: "quote" as const, text: b.text };
+      return { type: "p" as const, text: b.text };
+    }),
+    recommendations: a.recommendations.map((r) => ({
+      path: r.path,
+      title: r.title,
+      cover: r.cover || undefined,
+      desc: r.desc || undefined,
+    })),
+    promo: a.isPromo,
+  };
+}
+
+export const cg51Source: Source = {
+  id: "cg51",
+  kind: "feed",
+
+  async siteInfo(): Promise<SiteInfo> {
+    const info = await refreshNode();
+    let categories: SiteCategory[] = [];
+    try {
+      const home = await fetchNodeText("/");
+      categories = parseCategories(home).map((c) => ({
+        path: `/category/${c.slug}/`,
+        name: c.name,
+      }));
+    } catch {
+      // No category nav; the home feed still works.
+    }
+    return { src: "cg51", node: info.node, nodeSource: info.source, categories };
+  },
+
+  async feed(path, page, nodeOverride): Promise<FeedPage> {
+    const base = await getNodeForRequest(nodeOverride);
+    const feedPath = buildFeedPath(path, page);
+    const html = await fetchNodeText(feedPath, base);
+    const result = parseFeed(html, base, feedPath, page);
+    return {
+      src: "cg51",
+      path,
+      page,
+      totalPages: result.totalPages,
+      items: result.items.map((i): FeedItem => {
+        const m = i.url.match(/\/archives\/\d+\//);
+        return {
+          id: i.id,
+          path: m ? m[0] : i.url,
+          title: i.title,
+          cover: i.cover || undefined,
+          published: i.published || undefined,
+          tags: i.categories.length ? i.categories : undefined,
+          meta: i.views ? [`${i.views}万浏览`] : undefined,
+        };
+      }),
+    };
+  },
+
+  async article(path, nodeOverride): Promise<Article> {
+    const base = await getNodeForRequest(nodeOverride);
+    const html = await fetchNodeText(path, base);
+    return toArticle(path, parseArticle(html, base, path));
+  },
+
+  matchArticle: (value) => {
+    const m = value.match(/\/archives\/(\d+)(?:[/?#]|$)/);
+    return m ? `/archives/${m[1]}/` : null;
+  },
+
+  imageHosts: isCg51ImageHost,
+
+  transformImage: async (data) => {
+    try {
+      return await decryptCg51Image(data);
+    } catch {
+      // Not encrypted (or key rotated) — pass the raw bytes through.
+      return data;
+    }
+  },
+};
+
+/** Legacy /api/node response shape (pre-normalization frontends). */
+export async function legacyNodeInfo() {
+  const info = await refreshNode();
+  const home = await fetchNodeText("/");
+  return { ...info, landing: CG51_LANDING, categories: parseCategories(home) };
 }
