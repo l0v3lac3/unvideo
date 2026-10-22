@@ -16,12 +16,17 @@ import { sourceById } from './sources';
  *   #/<src>/page/2/         feed source home, page 2
  *   #/<src>/category/x/     feed source category, page 1
  *   #/<src>/category/x/2/   feed source category, page 2
+ *   #/<src>/category/o/x/   feed source category (sorted variant)
+ *   #/<src>/tag/<name>/[N/] feed source tag list, page N
  *   #/<src>/archives/123/   article
  *   #/<src>?url=<page-url>  video source player
  *
+ * Category/tag slugs are opaque (URL-encoded, possibly multi-segment for
+ * sorted variants) — the adapters own their meaning.
+ *
  * Legacy (pre-source-prefix) hashes keep working: #/archives/123/,
- * #/category/x/[n]/, #/page/n/ all map to the 'cg51' source, and
- * #/rou?url=... is the 'rou' source player.
+ * #/category/x/[n]/, #/tag/x/[n]/, #/page/n/ all map to the 'cg51' source,
+ * and #/rou?url=... is the 'rou' source player.
  */
 export type Route =
   | { kind: 'home' }
@@ -34,10 +39,38 @@ export type PlayRoute = Extract<Route, { kind: 'play' }>;
 
 const MARK = 'unvideo';
 const HOME_PAGE = /^\/page\/(\d+)\/?$/;
-const CATEGORY = /^\/category\/([^/]+)(?:\/(\d+))?\/?$/;
+const LIST = /^\/(category|tag)\/(.+)$/;
 const ARTICLE = /^\/archives\/(\d+)\/?$/;
 
 type RouterState = { app: typeof MARK; depth: number };
+
+/**
+ * A normalized list path: `/category/…` or `/tag/…` (slugs URL-encoded,
+ * possibly multi-segment for sorted variants), plus an optional trailing
+ * page number. Returns null when `rest` is not a list path.
+ */
+function parseListPath(src: string, rest: string): Route | null {
+  const m = rest.match(LIST);
+  if (!m) return null;
+  let base = `/${m[1]}/${m[2]}`;
+  let page = 1;
+  // Trailing `/N/` is a page number only when at least one non-numeric
+  // segment precedes it (a category literally named "2024" is not a page).
+  const paged = base.match(/^(\/(?:category|tag)\/.+)\/(\d+)\/?$/);
+  if (paged) {
+    base = paged[1];
+    page = clampPage(Number(paged[2]));
+  }
+  return feedRoute(src, `${base.replace(/\/+$/, '')}/`, page);
+}
+
+/**
+ * True for normalized list paths (home / category / tag). Any other in-source
+ * path under a feed source is an article (validated by `matchArticle`).
+ */
+export function isFeedPath(path: string): boolean {
+  return path === '/' || /^\/(category|tag)\/.+/.test(path);
+}
 
 /** URL for a route, always in canonical form. */
 export function buildHash(route: Route): string {
@@ -122,15 +155,8 @@ export function parseHash(hash: string): { route: Route; canonical: string } {
       const route = feedRoute(source.id, '/', clampPage(Number(page[1])));
       return { route, canonical: buildHash(route) };
     }
-    const cat = rest.match(CATEGORY);
-    if (cat) {
-      const route = feedRoute(
-        source.id,
-        `/category/${cat[1]}/`,
-        clampPage(Number(cat[2] ?? 1)),
-      );
-      return { route, canonical: buildHash(route) };
-    }
+    const list = parseListPath(source.id, rest);
+    if (list) return { route: list, canonical: buildHash(list) };
     // Any other path under a feed source is an article. The source's
     // `matchArticle` validates it — invalid paths surface as an article error
     // instead of silently falling back to the home feed. (Article shapes differ
@@ -149,15 +175,8 @@ export function parseHash(hash: string): { route: Route; canonical: string } {
     };
     return { route, canonical: buildHash(route) };
   }
-  const cat = path.match(CATEGORY);
-  if (cat) {
-    const route = feedRoute(
-      'cg51',
-      `/category/${cat[1]}/`,
-      clampPage(Number(cat[2] ?? 1)),
-    );
-    return { route, canonical: buildHash(route) };
-  }
+  const list = parseListPath('cg51', path);
+  if (list) return { route: list, canonical: buildHash(list) };
   const homePage = path.match(HOME_PAGE);
   if (homePage) {
     const route = feedRoute('cg51', '/', clampPage(Number(homePage[1])));
@@ -235,24 +254,6 @@ export function navigate(route: Route, options: { replace?: boolean } = {}) {
   };
   if (options.replace) window.history.replaceState(state, '', hash);
   else window.history.pushState(state, '', hash);
-  emit();
-}
-
-/**
- * Go back one in-app step when possible; otherwise replace the current entry
- * with `fallback` so the button never kicks the user off the site.
- */
-export function goBack(fallback: Route) {
-  if ((readState()?.depth ?? 0) > 0) {
-    window.history.back();
-    return;
-  }
-  saveScroll();
-  window.history.replaceState(
-    { app: MARK, depth: 0 } satisfies RouterState,
-    '',
-    buildHash(fallback),
-  );
   emit();
 }
 

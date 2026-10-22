@@ -207,9 +207,16 @@ export function Article({
                   <dt>标签</dt>
                   <dd className="article-tags">
                     {article.tags.map((t) => (
-                      <span className="tag" key={t}>
-                        {t}
-                      </span>
+                      <button
+                        key={t.path}
+                        className="tag"
+                        title={t.name}
+                        onClick={() => {
+                          if (t.path.startsWith('/')) onOpenPath(t.path);
+                        }}
+                      >
+                        {t.name}
+                      </button>
                     ))}
                   </dd>
                 </>

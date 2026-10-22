@@ -73,9 +73,19 @@ export function Player({ source }: { source: StreamSource | null }) {
         if (cancelled) return;
         const { default: Hls } = HlsLib;
         if (Hls.isSupported()) {
-          const instance = new Hls();
+          // Tolerant of flaky networks (rou's rotating CDNs, mobile data):
+          // retry each fragment far more times before declaring failure.
+          const instance = new Hls({
+            enableWorker: true,
+            manifestLoadingMaxRetry: 5,
+            levelLoadingMaxRetry: 5,
+            fragLoadingMaxRetry: 10,
+            fragLoadingRetryDelay: 1000,
+            manifestLoadingRetryDelay: 1000,
+          });
           hls = instance;
           (window as Window & { __hls?: Hls }).__hls = instance;
+          let netRecoveries = 0;
           instance.loadSource(playlistUrl);
           instance.attachMedia(video);
           instance.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -83,20 +93,52 @@ export function Player({ source }: { source: StreamSource | null }) {
             setStatus({ kind: 'ready', message: '播放就绪' });
             play();
           });
+          // A fragment that actually landed means the network is fine again —
+          // clear the transient retry note.
+          instance.on(Hls.Events.FRAG_LOADED, () => {
+            if (cancelled) return;
+            setStatus((s) =>
+              s.kind === 'ready' ? s : { kind: 'ready', message: '播放就绪' },
+            );
+          });
           instance.on(Hls.Events.ERROR, (_event, data) => {
             if (cancelled) return;
-            setStatus({
-              kind: 'error',
-              message: `${data.type}: ${data.details}`,
-            });
-            if (!data.fatal) return;
-            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-              instance.startLoad();
-            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-              instance.recoverMediaError();
-            } else {
-              destroy();
+            // Non-fatal (e.g. networkError: fragLoadError): hls.js retries the
+            // fragment internally and playback usually continues — show a
+            // transient note instead of a hard error.
+            if (!data.fatal) {
+              if (
+                data.type === Hls.ErrorTypes.NETWORK_ERROR ||
+                data.type === Hls.ErrorTypes.OTHER_ERROR
+              ) {
+                setStatus({ kind: 'busy', message: '网络波动，正在自动重试…' });
+              }
+              return;
             }
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              netRecoveries += 1;
+              if (netRecoveries <= 2) {
+                setStatus({ kind: 'busy', message: '网络错误，正在重连…' });
+                // First failure: resume loading. Second: reload from the
+                // manifest. A third: give up.
+                if (netRecoveries === 1) instance.startLoad();
+                else instance.loadSource(playlistUrl);
+                return;
+              }
+              setStatus({
+                kind: 'error',
+                message: '网络错误：多次重试后仍无法加载视频',
+              });
+              destroy();
+              return;
+            }
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              setStatus({ kind: 'busy', message: '媒体错误，正在恢复…' });
+              instance.recoverMediaError();
+              return;
+            }
+            setStatus({ kind: 'error', message: `播放出错：${data.details}` });
+            destroy();
           });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
           video.src = playlistUrl;

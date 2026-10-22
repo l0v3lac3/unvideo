@@ -260,7 +260,9 @@ export function parseCategories(html: string): Cg51Category[] {
  * Build the feed URL path for a given list path + page number.
  *  /            page 1 → /          page N → /page/N/
  *  /category/x  page 1 → /category/x/   page N → /category/x/N/
- * Anything else is rejected (the feed is only browsable by home + categories).
+ *  /tag/x       page 1 → /tag/x/    page N → /tag/x/N/
+ * Anything else is rejected (the feed is browsable by home + categories
+ * + tag pages only).
  */
 export function buildFeedPath(path: string, page: number): string {
   let p = path || "/";
@@ -269,6 +271,7 @@ export function buildFeedPath(path: string, page: number): string {
   if (page <= 1) return p === "" ? "/" : p + "/";
   if (p === "") return `/page/${page}/`;
   if (/^\/category\/[a-z0-9]+$/.test(p)) return `${p}/${page}/`;
+  if (/^\/tag\/[^/]+$/.test(p)) return `${p}/${page}/`;
   throw new HttpError(400, "unsupported feed path (use / or /category/<slug>)");
 }
 
@@ -326,7 +329,7 @@ export function parseFeed(html: string, node: string, path: string, page: number
     });
   }
   let totalPages = 0;
-  for (const m of html.matchAll(/\/(?:page|category\/[a-z0-9]+)\/(\d+)\//g)) {
+  for (const m of html.matchAll(/\/(?:page|category\/[a-z0-9]+|tag\/[^/]+)\/(\d+)\//g)) {
     totalPages = Math.max(totalPages, Number(m[1]));
   }
   return { node: base, path, page, totalPages, items };
@@ -363,6 +366,13 @@ export type Cg51BodyBlock =
   | { type: "quote"; text: string }
   | { type: "rec"; rec: Cg51Rec };
 
+export type Cg51Tag = {
+  /** Display name of the tag. */
+  name: string;
+  /** Tag list page on the node (e.g. `/tag/捡尸/`). */
+  path: string;
+};
+
 export type Cg51Article = {
   node: string;
   url: string;
@@ -372,7 +382,7 @@ export type Cg51Article = {
   published: string;
   modified: string;
   categories: string[];
-  tags: string[];
+  tags: Cg51Tag[];
   cover: string;
   images: string[];
   /** Ordered body as it appears on the original site (text/heading/image/video). */
@@ -539,7 +549,7 @@ export function parseArticleBody(bodyHtml: string): Cg51BodyBlock[] {
   let skipUntil = -1;
   let m: RegExpExecArray | null;
   while ((m = BLOCK_RE.exec(bodyHtml))) {
-    if (m.index < skipUntil) continue;
+    if ((m.index ?? 0) < skipUntil) continue;
     if (m[1]) {
       const text = stripTags(m[2]);
       if (text) blocks.push({ type: "h", level: Number(m[1]), text });
@@ -568,7 +578,7 @@ export function parseArticleBody(bodyHtml: string): Cg51BodyBlock[] {
           // this rec's cover if the wrapped img belongs to a rec cover AND the
           // id matches; otherwise let the next <p> be parsed normally (img +
           // desc blocks).
-          const restStart = m.index + m[0].length;
+          const restStart = (m.index ?? 0) + m[0].length;
           const rest = bodyHtml.slice(restStart);
           const nextP = rest.match(/<p[^>]*>([\s\S]*?)<\/p>/);
           if (nextP) {
@@ -647,10 +657,28 @@ export function parseArticle(html: string, node: string, path: string): Cg51Arti
   // may also embed a preview player outside the body).
   const dplayerTag = html.match(/class="dplayer"([^>]*)/)?.[1] ?? "";
   const video = extractVideoFromDplayer(dplayerTag);
-  const tagsFromVideo = dplayerTag.match(/data-video_tag_name="([^"]*)"/);
-  const metaKeywords = html.match(/name="keywords" content="([^"]*)"/);
-  const tagSource = tagsFromVideo?.[1] ?? metaKeywords?.[1] ?? "";
-  const tags = tagSource.split(",").map(t => t.trim()).filter(Boolean);
+  // The tag cloud under the body: `<div class="tags"><div itemprop="keywords">
+  // <a href="/tag/<name>/">name</a>…</div></div>`. Prefer the real links (name
+  // + path); fall back to the dplayer/meta names (path synthesized).
+  const tagDiv =
+    html.match(/<div class="tags"[\s\S]*?<\/div>\s*<\/div>/)?.[0] ?? "";
+  const tags: Cg51Tag[] = [];
+  const seenTag = new Set<string>();
+  for (const m of tagDiv.matchAll(/<a href="(\/tag\/[^"]+)">([^<]+)<\/a>/g)) {
+    const name = decodeEntities(m[2].trim());
+    const path = m[1].replace(/\/+$/, "");
+    if (!name || seenTag.has(path)) continue;
+    seenTag.add(path);
+    tags.push({ name, path });
+  }
+  if (!tags.length) {
+    const tagsFromVideo = dplayerTag.match(/data-video_tag_name="([^"]*)"/);
+    const metaKeywords = html.match(/name="keywords" content="([^"]*)"/);
+    const tagSource = tagsFromVideo?.[1] ?? metaKeywords?.[1] ?? "";
+    for (const name of tagSource.split(",").map(t => t.trim()).filter(Boolean)) {
+      tags.push({ name, path: `/tag/${encodeURIComponent(name)}/` });
+    }
+  }
 
   // Flat image list = every image block, in order (kept for the gallery).
   // Recommendation covers are NOT the article's own photos — they're covers of
@@ -823,7 +851,14 @@ export const cg51Source: Source = {
     } catch {
       // No category nav; the home feed still works.
     }
-    return { src: "cg51", node: info.node, nodeSource: info.source, categories };
+    return {
+      src: "cg51",
+      node: info.node,
+      nodeSource: info.source,
+      categories: categories.length
+        ? [{ id: "category", label: "分类", categories }]
+        : [],
+    };
   },
 
   async feed(path, page, nodeOverride): Promise<FeedPage> {
@@ -831,6 +866,9 @@ export const cg51Source: Source = {
     const feedPath = buildFeedPath(path, page);
     const html = await fetchNodeText(feedPath, base);
     const result = parseFeed(html, base, feedPath, page);
+    // The card's category span holds names only; the same page's nav maps
+    // name → slug so the chips can link to the category list.
+    const slugByName = new Map(parseCategories(html).map(c => [c.name, c.slug]));
     return {
       src: "cg51",
       path,
@@ -838,13 +876,21 @@ export const cg51Source: Source = {
       totalPages: result.totalPages,
       items: result.items.map((i): FeedItem => {
         const m = i.url.match(/\/archives\/\d+\//);
+        const tags = i.categories
+          .map(name => {
+            const slug = slugByName.get(name);
+            return slug
+              ? { name, path: `/category/${slug}/` }
+              : null;
+          })
+          .filter((t): t is { name: string; path: string } => t !== null);
         return {
           id: i.id,
           path: m ? m[0] : i.url,
           title: i.title,
           cover: i.cover || undefined,
           published: i.published || undefined,
-          tags: i.categories.length ? i.categories : undefined,
+          tags: tags.length ? tags : undefined,
           meta: i.views ? [`${i.views}万浏览`] : undefined,
         };
       }),

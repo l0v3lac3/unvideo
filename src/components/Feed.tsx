@@ -32,18 +32,29 @@ function remember(key: string, result: FeedPage) {
 function FeedCard({
   item,
   onOpen,
+  onOpenPath,
 }: {
   item: FeedItem;
   onOpen: (item: FeedItem) => void;
+  onOpenPath: (path: string) => void;
 }) {
   const date = item.published
     ? new Date(item.published).toLocaleDateString('zh-CN')
     : '';
+  // A div (not a <button>) so the tag chips inside can be real buttons.
   return (
-    <button
+    <div
       className="feed-card"
-      onClick={() => onOpen(item)}
+      role="button"
+      tabIndex={0}
       aria-label={item.title}
+      onClick={() => onOpen(item)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen(item);
+        }
+      }}
     >
       <div className="feed-cover">
         {item.cover ? (
@@ -58,9 +69,17 @@ function FeedCard({
         </h3>
         <div className="feed-meta">
           {(item.tags ?? []).slice(0, 3).map((t) => (
-            <span className="feed-cat" key={t}>
-              {t}
-            </span>
+            <button
+              key={t.path}
+              className="feed-cat"
+              title={t.name}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (t.path.startsWith('/')) onOpenPath(t.path);
+              }}
+            >
+              {t.name}
+            </button>
           ))}
         </div>
         <div className="feed-foot">
@@ -70,7 +89,7 @@ function FeedCard({
           ))}
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -151,6 +170,7 @@ export function Feed({
   page,
   node,
   onOpen,
+  onOpenPath,
   onPageChange,
 }: {
   src: string;
@@ -158,6 +178,7 @@ export function Feed({
   page: number;
   node: string;
   onOpen: (item: FeedItem) => void;
+  onOpenPath: (path: string) => void;
   onPageChange: (page: number) => void;
 }) {
   const key = cacheKey(src, node, path, page);
@@ -210,7 +231,12 @@ export function Feed({
               <div className="feed-card feed-skeleton" key={i} />
             ))
           : data?.items.map((item) => (
-              <FeedCard key={item.id} item={item} onOpen={onOpen} />
+              <FeedCard
+                key={item.id}
+                item={item}
+                onOpen={onOpen}
+                onOpenPath={onOpenPath}
+              />
             ))}
       </div>
 

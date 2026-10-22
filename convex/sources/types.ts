@@ -66,7 +66,7 @@ export interface Article {
   published?: string;
   modified?: string;
   categories?: string[];
-  tags?: string[];
+  tags?: TagRef[];
   cover?: string;
   /** Flat gallery (fallback when `blocks` is empty). */
   images?: string[];
@@ -87,8 +87,8 @@ export interface FeedItem {
   title: string;
   cover?: string;
   published?: string;
-  /** Up to a few chips rendered under the title. */
-  tags?: string[];
+  /** Up to a few clickable chips rendered under the title. */
+  tags?: TagRef[];
   /** Footer facts (e.g. view count). */
   meta?: string[];
 }
@@ -102,10 +102,29 @@ export interface FeedPage {
   items: FeedItem[];
 }
 
+/** A clickable tag: the display name plus its list path within the source. */
+export interface TagRef {
+  /** Display text (the tag name on the original site). */
+  name: string;
+  /** List path within the source (e.g. `/tag/<name>/` or `/category/<slug>/`). */
+  path: string;
+}
+
 export interface SiteCategory {
   /** List path within the source (e.g. `/category/<slug>/`). */
   path: string;
   name: string;
+  /** Subcategories (main category → sublabels), when the source has them. */
+  children?: SiteCategory[];
+}
+
+/** One section of the source's category nav (e.g. 主分類 / 題材 / 精選). */
+export interface SiteCategoryGroup {
+  /** Stable id — the frontend uses it as a React key. */
+  id: string;
+  /** Display label shown next to / above the group's buttons. */
+  label: string;
+  categories: SiteCategory[];
 }
 
 /** Feed-source site info (node + category nav). */
@@ -115,7 +134,7 @@ export interface SiteInfo {
   node: string;
   /** Where the node URL came from: "api" (freshly discovered) or "default". */
   nodeSource: "api" | "default";
-  categories: SiteCategory[];
+  categories: SiteCategoryGroup[];
 }
 
 /**

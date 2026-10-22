@@ -51,8 +51,8 @@ export type FeedItem = {
   title: string;
   cover?: string;
   published?: string;
-  /** Chips rendered under the title. */
-  tags?: string[];
+  /** Clickable chips rendered under the title. */
+  tags?: TagRef[];
   /** Footer facts (e.g. view count). */
   meta?: string[];
 };
@@ -75,7 +75,7 @@ export type Article = {
   published?: string;
   modified?: string;
   categories?: string[];
-  tags?: string[];
+  tags?: TagRef[];
   cover?: string;
   /** Flat gallery (fallback when `blocks` is empty). */
   images?: string[];
@@ -89,14 +89,33 @@ export type Article = {
   promo?: boolean;
 };
 
+/** A clickable tag: the display name plus its list path within the source. */
+export type TagRef = {
+  /** Display text (the tag name on the original site). */
+  name: string;
+  /** List path within the source (e.g. `/tag/<name>/` or `/category/<slug>/`). */
+  path: string;
+};
+
 export type SiteCategory = {
   path: string;
   name: string;
+  /** Subcategories (main category → sublabels), when the source has them. */
+  children?: SiteCategory[];
+};
+
+/** One section of the source's category nav (e.g. 主分類 / 題材 / 精選). */
+export type SiteCategoryGroup = {
+  /** Stable id — used as a React key. */
+  id: string;
+  /** Display label shown next to / above the group's buttons. */
+  label: string;
+  categories: SiteCategory[];
 };
 
 export type SiteInfo = {
   src: string;
   node: string;
   nodeSource: 'api' | 'default';
-  categories: SiteCategory[];
+  categories: SiteCategoryGroup[];
 };

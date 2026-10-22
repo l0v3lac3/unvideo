@@ -4,9 +4,14 @@ import { Player, type StreamSource } from './components/Player';
 import { Feed } from './components/Feed';
 import { Article } from './components/Article';
 import { SOURCES, sourceById, sourceHomeRoute } from './lib/sources';
-import type { FeedItem, SiteInfo } from './lib/types';
+import type {
+  FeedItem,
+  SiteCategory,
+  SiteCategoryGroup,
+  SiteInfo,
+} from './lib/types';
 import {
-  goBack,
+  isFeedPath,
   navigate,
   routeKey,
   useHashRoute,
@@ -33,49 +38,52 @@ export default function App() {
   const route = useHashRoute();
   const source = route.kind === 'home' ? undefined : sourceById(route.src);
 
-  // Remember each source's last view (site-bar switch returns to where you
-  // were) and last feed (the article back-button fallback).
-  const lastView = useRef<Record<string, Route>>({});
+  // Remember each source's last list: the site-bar switch and the article
+  // back-button both fall back to it (never to an article — landing on one
+  // would make 返回 / browser-back step into a history entry of *another*
+  // site, which is where the "back" button used to misfire).
   const lastFeed = useRef<Record<string, Route>>({});
   useEffect(() => {
-    if (route.kind !== 'home') lastView.current[route.src] = route;
     if (route.kind === 'feed') lastFeed.current[route.src] = route;
   }, [route]);
 
   // Node + category nav of the active feed source (discovered server-side).
+  // The result is keyed by the src it was fetched for, so switching sources
+  // hides the stale result during render — no synchronous reset needed.
   const siteFor =
     route.kind === 'feed' || route.kind === 'article' ? route.src : null;
-  const [siteInfo, setSiteInfo] = useState<SiteInfo | null>(null);
-  const [siteError, setSiteError] = useState<string | null>(null);
+  const [siteState, setSiteState] = useState<{
+    src: string;
+    info: SiteInfo | null;
+    error: string | null;
+  } | null>(null);
   useEffect(() => {
-    if (!siteFor) {
-      setSiteInfo(null);
-      setSiteError(null);
-      return;
-    }
+    if (!siteFor) return;
     const src = sourceById(siteFor);
     if (!src?.siteInfo) return;
     let cancelled = false;
-    setSiteInfo(null);
-    setSiteError(null);
     src
       .siteInfo()
       .then((info) => {
-        if (!cancelled) {
-          setSiteInfo(info);
-          setSiteError(null);
-        }
+        if (!cancelled) setSiteState({ src: siteFor, info, error: null });
       })
       .catch((err) => {
-        if (!cancelled) {
-          // The backend still falls back to a default node; report the cause.
-          setSiteError(err instanceof Error ? err.message : String(err));
-        }
+        if (!cancelled)
+          setSiteState({
+            // The backend still falls back to a default node; report the cause.
+            src: siteFor,
+            info: null,
+            error: err instanceof Error ? err.message : String(err),
+          });
       });
     return () => {
       cancelled = true;
     };
   }, [siteFor]);
+  const siteInfo =
+    siteState && siteState.src === siteFor ? siteState.info : null;
+  const siteError =
+    siteState && siteState.src === siteFor ? siteState.error : null;
 
   // Video source: URL bar state, synced with the route (back/forward/deep link).
   const [playUrl, setPlayUrl] = useState<string | null>(null);
@@ -99,9 +107,12 @@ export default function App() {
   const selectSite = (id: string) => {
     const target = sourceById(id);
     if (!target || activeSrc === id) return;
-    const last = lastView.current[id];
+    // Restore the source's last *list* (home or category), not its last
+    // article — an article restored over the current entry would make the
+    // browser's back button (and 返回) step into another site's page.
+    const last = lastFeed.current[id];
     navigate(
-      last && last.kind !== 'home' && last.src === id
+      last && last.kind === 'feed' && last.src === id
         ? last
         : sourceHomeRoute(target),
     );
@@ -112,10 +123,19 @@ export default function App() {
     navigate({ kind: 'article', src: route.src, path: item.path });
   };
 
-  const openArticlePath = (value: string) => {
+  /**
+   * Open a normalized in-source path: list paths (category / tag) open the
+   * corresponding feed page, everything else is an article. Used by tag
+   * chips and recommendation cards alike.
+   */
+  const openPath = (value: string) => {
     if (route.kind !== 'feed' && route.kind !== 'article') return;
     if (!value.startsWith('/')) return;
-    navigate({ kind: 'article', src: route.src, path: value });
+    if (isFeedPath(value)) {
+      navigate({ kind: 'feed', src: route.src, path: value, page: 1 });
+    } else {
+      navigate({ kind: 'article', src: route.src, path: value });
+    }
   };
 
   const submitPlay = (e: FormEvent<HTMLFormElement>) => {
@@ -148,39 +168,57 @@ export default function App() {
 
   return (
     <main className="app">
-      <header className="app-header">
-        <h1>
-          <a className="logo" href="#/">
-            <span className="logo-mark" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="20" height="20">
-                <path d="M4 2l16 10-16 10V2z" fill="currentColor" />
-              </svg>
-            </span>
-            <span className="logo-text" data-text="UNVIDEO">
-              UNVIDEO
-            </span>
-          </a>
-        </h1>
-        <p className="tagline">视频解析站 // React + Convex + Vite</p>
-      </header>
+      {/* Frozen top: identity + site switch + back + category nav. Every
+          feed/article page opens with this same header, so entering any
+          article or video shows a unified page top. Categories come from the
+          active source's siteInfo, so they never leak across sites. */}
+      <div className="app-top">
+        <header className="app-header">
+          <h1>
+            <a className="logo" href="#/">
+              <span className="logo-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                  <path d="M4 2l16 10-16 10V2z" fill="currentColor" />
+                </svg>
+              </span>
+              <span className="logo-text" data-text="UNVIDEO">
+                UNVIDEO
+              </span>
+            </a>
+          </h1>
+          <p className="tagline">视频解析站 // React + Convex + Vite</p>
+        </header>
 
-      <nav className="sites" aria-label="站点切换">
-        {SOURCES.map((s) => (
-          <button
-            key={s.id}
-            className={activeSrc === s.id ? 'site active' : 'site'}
-            onClick={() => selectSite(s.id)}
-          >
-            {s.label}
+        <nav className="sites" aria-label="站点切换">
+          {SOURCES.map((s) => (
+            <button
+              key={s.id}
+              className={activeSrc === s.id ? 'site active' : 'site'}
+              onClick={() => selectSite(s.id)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </nav>
+
+        {route.kind === 'article' ? (
+          <button className="back-btn" onClick={() => navigate(backFallback())}>
+            ← 返回
           </button>
-        ))}
-      </nav>
+        ) : null}
 
-      {route.kind === 'article' ? (
-        <button className="back-btn" onClick={() => goBack(backFallback())}>
-          ← 返回
-        </button>
-      ) : null}
+        {siteFor && siteInfo ? (
+          <CategoryNav
+            groups={siteInfo.categories}
+            active={route.kind === 'feed' ? route.path : ''}
+            onSelect={(path) => {
+              if (route.kind === 'feed' || route.kind === 'article') {
+                navigate({ kind: 'feed', src: route.src, path, page: 1 });
+              }
+            }}
+          />
+        ) : null}
+      </div>
 
       {route.kind === 'play' ? (
         <section>
@@ -232,34 +270,26 @@ export default function App() {
                 src={route.src}
                 path={route.path}
                 node={siteInfo.node}
-                onOpenPath={openArticlePath}
+                onOpenPath={openPath}
               />
             ) : (
-              <>
-                <CategoryNav
-                  categories={siteInfo.categories}
-                  active={route.path}
-                  onSelect={(path) =>
-                    navigate({ kind: 'feed', src: route.src, path, page: 1 })
-                  }
-                />
-                <Feed
-                  key={`${route.src}:${route.path}:${route.page}`}
-                  src={route.src}
-                  path={route.path}
-                  page={route.page}
-                  node={siteInfo.node}
-                  onOpen={openArticle}
-                  onPageChange={(page) =>
-                    navigate({
-                      kind: 'feed',
-                      src: route.src,
-                      path: route.path,
-                      page,
-                    })
-                  }
-                />
-              </>
+              <Feed
+                key={`${route.src}:${route.path}:${route.page}`}
+                src={route.src}
+                path={route.path}
+                page={route.page}
+                node={siteInfo.node}
+                onOpen={openArticle}
+                onOpenPath={openPath}
+                onPageChange={(page) =>
+                  navigate({
+                    kind: 'feed',
+                    src: route.src,
+                    path: route.path,
+                    page,
+                  })
+                }
+              />
             )
           ) : (
             <p className="status">正在发现内容节点…</p>
@@ -279,33 +309,192 @@ export default function App() {
   );
 }
 
+/**
+ * Grouped category nav (the frozen bar under the site switcher). The first
+ * group (primary, e.g. rou 主分類 / cg51 分类) shows its top-level buttons
+ * inline; a primary button with `children` carries a caret that reveals the
+ * subcategories on the row below. Other groups (题材 / 属性, 分類精選) are
+ * collapsible — they open when the user toggles them or when the active
+ * route is one of their paths.
+ */
 function CategoryNav({
-  categories,
+  groups,
   active,
   onSelect,
 }: {
-  categories: { path: string; name: string }[];
+  groups: SiteCategoryGroup[];
+  /** Active list path (`/` or a category/tag path); '' on article pages. */
   active: string;
   onSelect: (path: string) => void;
 }) {
+  // User-driven expansions, kept across route changes for the nav's lifetime.
+  const [openCats, setOpenCats] = useState<ReadonlySet<string>>(new Set());
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
+
+  const toggleIn =
+    (
+      set: ReadonlySet<string>,
+      apply: (next: Set<string>) => void,
+      key: string,
+    ) =>
+    () => {
+      const next = new Set(set);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      apply(next);
+    };
+
+  const primary = groups[0];
+
+  // Which group / parent category contains `active` (drives auto-expand).
+  let activeGroupId: string | null = null;
+  let activeParentPath: string | null = null;
+  for (const g of groups) {
+    for (const c of g.categories) {
+      const hits =
+        c.path === active || (c.children ?? []).some((s) => s.path === active);
+      if (hits) {
+        activeGroupId = g.id;
+        activeParentPath = c.path;
+      }
+    }
+  }
+
+  const catOpen = (c: SiteCategory) =>
+    openCats.has(c.path) || c.path === activeParentPath;
+  const groupOpen = (g: SiteCategoryGroup) =>
+    g.id === primary?.id || openGroups.has(g.id) || g.id === activeGroupId;
+
   const homeActive = active === '/' || active === '';
+
   return (
-    <div className="cat-nav">
-      <button
-        className={homeActive ? 'cat active' : 'cat'}
-        onClick={() => onSelect('/')}
-      >
-        全部
-      </button>
-      {categories.map((c) => (
+    <nav className="cat-nav" aria-label="分类导航">
+      <div className="cat-row">
         <button
-          key={c.path}
-          className={active === c.path ? 'cat active' : 'cat'}
-          onClick={() => onSelect(c.path)}
+          className={homeActive ? 'cat active' : 'cat'}
+          onClick={() => onSelect('/')}
         >
-          {c.name}
+          全部
         </button>
-      ))}
-    </div>
+        {primary ? (
+          <span className="cat-group">
+            {primary.label ? (
+              <span className="cat-group-label">{primary.label}</span>
+            ) : null}
+            {primary.categories.map((c) => (
+              <CatButton
+                key={c.path}
+                cat={c}
+                active={active === c.path}
+                related={activeParentPath === c.path && active !== c.path}
+                open={catOpen(c)}
+                onSelect={onSelect}
+                onToggle={toggleIn(openCats, setOpenCats, c.path)}
+              />
+            ))}
+          </span>
+        ) : null}
+        {groups
+          .filter((g) => g !== primary)
+          .map((g) => (
+            <button
+              key={g.id}
+              className={
+                groupOpen(g) ? 'cat group-toggle open' : 'cat group-toggle'
+              }
+              onClick={toggleIn(openGroups, setOpenGroups, g.id)}
+              aria-expanded={groupOpen(g)}
+            >
+              {g.label}{' '}
+              <span aria-hidden="true">{groupOpen(g) ? '▾' : '▸'}</span>
+            </button>
+          ))}
+      </div>
+
+      {primary
+        ? primary.categories
+            .filter(catOpen)
+            .filter((c) => (c.children ?? []).length > 0)
+            .map((c) => (
+              <div className="cat-row cat-row-sub" key={c.path}>
+                <span className="cat-group-label">{c.name}</span>
+                {(c.children ?? []).map((s) => (
+                  <button
+                    key={s.path}
+                    className={active === s.path ? 'cat sub active' : 'cat sub'}
+                    onClick={() => onSelect(s.path)}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            ))
+        : null}
+
+      {groups
+        .filter((g) => g !== primary)
+        .filter(groupOpen)
+        .map((g) => (
+          <div className="cat-row cat-row-sub" key={g.id}>
+            {g.categories.map((c) => (
+              <button
+                key={c.path}
+                className={active === c.path ? 'cat sub active' : 'cat sub'}
+                onClick={() => onSelect(c.path)}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        ))}
+    </nav>
+  );
+}
+
+/** A primary-category button; categories with subcategories get a caret. */
+function CatButton({
+  cat,
+  active,
+  related,
+  open,
+  onSelect,
+  onToggle,
+}: {
+  cat: SiteCategory;
+  active: boolean;
+  /** True when the active route is one of this category's subcategories. */
+  related: boolean;
+  open: boolean;
+  onSelect: (path: string) => void;
+  onToggle: () => void;
+}) {
+  const hasKids = (cat.children ?? []).length > 0;
+  if (!hasKids) {
+    return (
+      <button
+        className={active ? 'cat active' : 'cat'}
+        onClick={() => onSelect(cat.path)}
+      >
+        {cat.name}
+      </button>
+    );
+  }
+  return (
+    <span className="cat-parent">
+      <button
+        className={active ? 'cat active' : related ? 'cat related' : 'cat'}
+        onClick={() => onSelect(cat.path)}
+      >
+        {cat.name}
+      </button>
+      <button
+        className="cat-caret"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-label={`${open ? '收起' : '展开'}${cat.name}的子分类`}
+      >
+        {open ? '▾' : '▸'}
+      </button>
+    </span>
   );
 }

@@ -273,6 +273,25 @@ body::after {
 }
 
 /* ------------------------------------------------------------------ *
+ * Frozen top: header + site switch + back + category nav. Every feed /
+ * article page opens with this same block, pinned while scrolling.
+ * ------------------------------------------------------------------ */
+.app-top {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  background: rgba(5, 6, 14, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+/* ------------------------------------------------------------------ *
  * Site switch bar (header)
  * ------------------------------------------------------------------ */
 .sites {
@@ -617,12 +636,43 @@ code {
 }
 
 /* ------------------------------------------------------------------ *
- * Category nav
+ * Category nav (grouped; primary group inline, subcategories + other
+ * groups on rows below)
  * ------------------------------------------------------------------ */
 .cat-nav {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cat-row {
+  display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
+}
+
+.cat-row-sub {
+  padding-left: 10px;
+}
+
+.cat-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.cat-group-label {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.cat-parent {
+  display: inline-flex;
+  align-items: stretch;
 }
 
 .cat {
@@ -658,6 +708,52 @@ code {
   background: var(--magenta);
   border-color: var(--magenta);
   filter: drop-shadow(0 0 8px rgba(255, 46, 196, 0.5));
+}
+
+/* Parent has one of its subcategories active. */
+.cat.related {
+  color: var(--magenta);
+  border-color: rgba(255, 46, 196, 0.55);
+}
+
+/* Caret toggling a parent's subcategory row. */
+.cat-caret {
+  width: 20px;
+  padding: 0;
+  margin-left: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.cat-caret:hover {
+  color: var(--cyan);
+  border-color: rgba(0, 240, 255, 0.55);
+}
+
+/* Collapsible group buttons (题材 / 属性, 分類精選, …). */
+.cat.group-toggle {
+  color: var(--cyan);
+}
+
+.cat.group-toggle.open {
+  color: #160416;
+  background: var(--cyan);
+  border-color: var(--cyan);
+  filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.5));
+}
+
+/* Subcategory / group-member buttons: one tier smaller. */
+.cat.sub {
+  padding: 4px 10px;
+  font-size: 0.72rem;
 }
 
 /* ------------------------------------------------------------------ *
@@ -796,6 +892,17 @@ code {
   border: 1px solid rgba(0, 240, 255, 0.3);
   border-radius: 2px;
   padding: 1px 7px;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.feed-cat:hover {
+  color: #fff;
+  border-color: rgba(0, 240, 255, 0.7);
+  background: rgba(0, 240, 255, 0.16);
 }
 
 .feed-foot {
@@ -951,6 +1058,17 @@ code {
   border: 1px solid rgba(255, 46, 196, 0.35);
   border-radius: 2px;
   padding: 1px 8px;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.tag:hover {
+  color: #fff;
+  border-color: rgba(255, 46, 196, 0.7);
+  background: rgba(255, 46, 196, 0.18);
 }
 
 .article-desc {

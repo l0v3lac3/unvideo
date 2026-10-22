@@ -32,7 +32,7 @@ import type {
   ArticleBlock,
   FeedItem,
   FeedPage,
-  SiteCategory,
+  SiteCategoryGroup,
   SiteInfo,
   Source,
   VideoBlock,
@@ -230,24 +230,91 @@ function extractRouFeed(html: string): { items: RawRouItem[]; totalPage: number 
   return { items, totalPage };
 }
 
-/** The 6 main categories from the /cat "主分類" grid (slugs stay URL-encoded). */
-function parseRouCategories(html: string): SiteCategory[] {
-  const start = html.indexOf("主分類");
-  const end = html.indexOf("分類精選", start);
-  if (start < 0) return [];
-  const region = html.slice(start, end > start ? end : html.length);
-  const cats: SiteCategory[] = [];
-  const seen = new Set<string>();
-  for (const m of region.matchAll(/<a href="\/t\/([^"/]+)"[\s\S]*?<h2[^>]*>([^<]+)</g)) {
-    const slug = m[1];
-    const name = m[2].trim();
-    // The 分類精選 grid reuses these slugs with a `?order=…` query — the region
-    // cut excludes it, but skip any query-bearing slug as a safety net.
-    if (!name || slug.includes("?") || seen.has(slug)) continue;
-    seen.add(slug);
-    cats.push({ path: `/category/${slug}/`, name });
+/**
+ * The /cat page's full category taxonomy, embedded as
+ * `taxonomy:$R[n]={cats:$R[a]=[…],genre:$R[b]=[…],byParent:$R[c]={…}}`:
+ *  - `cats`     main categories, in site order (ids = display names);
+ *  - `genre`    the 題材 / 屬性 tag list;
+ *  - `byParent` main-category name → its sublabels (片商 / 子標籤).
+ * The 分類精選 grid is visible HTML: each main re-linked with `?order=<sort>`.
+ */
+type RouTaxonomy = {
+  mains: { name: string; subs: string[] }[];
+  genres: string[];
+  featured: { name: string; order: string }[];
+};
+
+/** All `{id:"…"}` entries of an embedded array segment, unescaped. */
+function embeddedIds(seg: string): string[] {
+  return [...seg.matchAll(/\{id:"((?:[^"\\]|\\.)*)"/g)].map((m) => jsonStr(m[1]));
+}
+
+export function parseRouTaxonomy(html: string): RouTaxonomy {
+  const at = html.indexOf("taxonomy:$R[");
+  if (at < 0) return { mains: [], genres: [], featured: [] };
+  const rest = html.slice(at);
+
+  const catsM = rest.match(/cats:\$R\[\d+\]=\[/);
+  const genreM = rest.match(/genre:\$R\[\d+\]=\[/);
+  const byParentM = rest.match(/byParent:\$R\[\d+\]=\{/);
+
+  // `index` is optional on the DOM lib type; the matched text is
+  // authoritative, so locate it if `index` is missing.
+  const posOf = (m: RegExpMatchArray): number =>
+    m.index ?? rest.indexOf(m[0]);
+
+  const catsAt = catsM ? posOf(catsM) : -1;
+  const genreAt = genreM ? posOf(genreM) : -1;
+  const byParentAt = byParentM ? posOf(byParentM) : -1;
+
+  const mains: { name: string; subs: string[] }[] = [];
+  let genres: string[] = [];
+  if (catsM && genreM) {
+    const mainsSeg = rest.slice(catsAt + catsM[0].length, genreAt);
+    for (const name of embeddedIds(mainsSeg)) mains.push({ name, subs: [] });
+    const genreEnd =
+      byParentAt >= 0 ? byParentAt : rest.indexOf("]", genreAt);
+    genres = embeddedIds(
+      rest.slice(genreAt + genreM[0].length, genreEnd),
+    );
   }
-  return cats;
+  if (byParentM) {
+    // The byParent object is inline: `"主分类":$R[n]=[…],…` — brace-match it.
+    const braceAt = byParentAt + byParentM[0].length - 1;
+    const objEnd = matchBrace(rest, braceAt);
+    const obj = objEnd > 0 ? rest.slice(braceAt, objEnd + 1) : "";
+    // The array body is `$R[n]={id:"…",count:N},…` — the reference brackets
+    // inside it (`$R[106]`) must not end the match, so skip `[digits]` runs.
+    for (const pair of obj.matchAll(
+      /"((?:[^"\\]|\\.)*)":\$R\[\d+\]=\[((?:[^[\]]|\[\d+\])*)\]/g,
+    )) {
+      const parent = jsonStr(pair[1]);
+      const main = mains.find((m) => m.name === parent);
+      if (main) main.subs = embeddedIds(pair[2]);
+    }
+  }
+
+  // 分類精選 chips are the only `/t/…?order=…` links on the page.
+  const featured: { name: string; order: string }[] = [];
+  const seen = new Set<string>();
+  for (const m of html.matchAll(/href="\/t\/([^"?]+)\?order=([A-Za-z]+)"/g)) {
+    const key = m[1] + m[2];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let name = m[1];
+    try {
+      name = decodeURIComponent(m[1]);
+    } catch {
+      // Keep the raw slug if it is not valid percent-encoding.
+    }
+    featured.push({ name, order: m[2] });
+  }
+  if (!featured.length && mains.length) {
+    // Section missing — 精選 is the mains re-sorted by likes.
+    for (const m of mains) featured.push({ name: m.name, order: "likeCount" });
+  }
+
+  return { mains, genres, featured };
 }
 
 /** The ld+json VideoObject embedded in a video page, if present. */
@@ -292,16 +359,40 @@ function parseRouRelated(html: string): RawRouRec[] {
   return recs;
 }
 
-/** Upstream URL for a normalized list path + page (home or category). */
+/** Sort values the site's list pages accept (see the /cat 分類精選 links). */
+const ROU_ORDERS = new Set(["createdAt", "likeCount"]);
+
+/**
+ * Upstream URL for a normalized list path + page:
+ *  /                       home feed
+ *  /category/<slug>/       category feed
+ *  /category/<order>/<slug>/  category feed sorted (e.g. 分類精選)
+ * Slugs in the normalized path are already URL-encoded — pass through.
+ */
 function buildRouFeedPath(path: string, page: number): string {
-  const q = new URLSearchParams({ order: "createdAt", page: String(Math.max(1, page)) });
   let p = path || "/";
   if (!p.startsWith("/")) p = "/" + p;
   p = p.replace(/\/+$/, "");
+  const q = new URLSearchParams({
+    order: "createdAt",
+    page: String(Math.max(1, page)),
+  });
   if (p === "") return `${ROU_ORIGIN}/v?${q}`;
-  const cat = p.match(/^\/category\/([^/]+)\/?$/);
-  if (cat) return `${ROU_ORIGIN}/t/${cat[1]}?${q}`;
-  throw new HttpError(400, "unsupported feed path (use / or /category/<slug>/)");
+  const cat = p.match(/^\/category\/(.+)$/);
+  if (!cat) throw new HttpError(400, "unsupported feed path (use / or /category/<slug>/)");
+  const segs = cat[1].split("/").filter(Boolean);
+  let order = "createdAt";
+  let slug = "";
+  if (segs.length === 1) slug = segs[0];
+  else if (segs.length === 2 && ROU_ORDERS.has(segs[0])) {
+    order = segs[0];
+    slug = segs[1];
+  } else {
+    throw new HttpError(400, "unsupported feed path (use / or /category/<slug>/)");
+  }
+  if (!slug) throw new HttpError(400, "unsupported feed path (use / or /category/<slug>/)");
+  q.set("order", order);
+  return `${ROU_ORIGIN}/t/${slug}?${q}`;
 }
 
 /** The rou.video source adapter. */
@@ -337,14 +428,52 @@ export const rouSource: Source = {
   /* ---------------- feed side ---------------- */
 
   async siteInfo(): Promise<SiteInfo> {
-    let categories: SiteCategory[] = [];
+    const groups: SiteCategoryGroup[] = [];
     try {
       const res = await fetchRou(`${ROU_ORIGIN}/cat`);
-      if (res.ok) categories = parseRouCategories(await res.text());
+      if (res.ok) {
+        const tax = parseRouTaxonomy(await res.text());
+        if (tax.mains.length) {
+          groups.push({
+            id: "main",
+            label: "主分類",
+            categories: tax.mains.map((m) => ({
+              path: `/category/${encodeURIComponent(m.name)}/`,
+              name: m.name,
+              children: m.subs.length
+                ? m.subs.map((s) => ({
+                    path: `/category/${encodeURIComponent(s)}/`,
+                    name: s,
+                  }))
+                : undefined,
+            })),
+          });
+        }
+        if (tax.genres.length) {
+          groups.push({
+            id: "genre",
+            label: "題材 / 屬性",
+            categories: tax.genres.map((g) => ({
+              path: `/category/${encodeURIComponent(g)}/`,
+              name: g,
+            })),
+          });
+        }
+        if (tax.featured.length) {
+          groups.push({
+            id: "featured",
+            label: "分類精選",
+            categories: tax.featured.map((f) => ({
+              path: `/category/${encodeURIComponent(f.order)}/${encodeURIComponent(f.name)}/`,
+              name: `${f.name}精選`,
+            })),
+          });
+        }
+      }
     } catch {
       // No category nav; the home feed still works.
     }
-    return { src: "rou", node: ROU_ORIGIN, nodeSource: "default", categories };
+    return { src: "rou", node: ROU_ORIGIN, nodeSource: "default", categories: groups };
   },
 
   async feed(path, page): Promise<FeedPage> {
@@ -368,7 +497,13 @@ export const rouSource: Source = {
           title: i.name,
           cover: i.cover || undefined,
           published: i.createdAt || undefined,
-          tags: i.tags.length ? i.tags : undefined,
+          // Tags are /t/<name>/ list pages — the normalized category path.
+          tags: i.tags.length
+            ? i.tags.map((name) => ({
+                name,
+                path: `/category/${encodeURIComponent(name)}/`,
+              }))
+            : undefined,
           meta: meta.length ? meta : undefined,
         };
       }),
@@ -388,11 +523,19 @@ export const rouSource: Source = {
     const title = (vo?.name as string) || og?.[1] || "";
 
     const genre = vo?.genre;
-    const categories = Array.isArray(genre)
+    const genres = Array.isArray(genre)
       ? (genre as unknown[]).filter((g): g is string => typeof g === "string")
       : typeof genre === "string" && genre
         ? [genre]
-        : undefined;
+        : [];
+    // The first genre is the breadcrumb category; the rest are tag pages.
+    const categories = genres.length ? [genres[0]] : undefined;
+    const tags = genres.length
+      ? genres.map((g) => ({
+          name: g,
+          path: `/category/${encodeURIComponent(g)}/`,
+        }))
+      : undefined;
     const cover = Array.isArray(vo?.thumbnailUrl)
       ? ((vo!.thumbnailUrl as string[])[0] ?? undefined)
       : undefined;
@@ -435,6 +578,7 @@ export const rouSource: Source = {
       description: (vo?.description as string) || undefined,
       published: (vo?.uploadDate as string) || undefined,
       categories,
+      tags,
       cover,
       video,
       blocks,
