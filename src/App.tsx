@@ -152,10 +152,17 @@ export default function App() {
       <header className="app-header">
         <h1>
           <a className="logo" href="#/">
-            🍉 unvideo
+            <span className="logo-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path d="M4 2l16 10-16 10V2z" fill="currentColor" />
+              </svg>
+            </span>
+            <span className="logo-text" data-text="UNVIDEO">
+              UNVIDEO
+            </span>
           </a>
         </h1>
-        <p className="tagline">视频解析站 · React + Convex + Vite</p>
+        <p className="tagline">视频解析站 // React + Convex + Vite</p>
       </header>
 
       <nav className="sites" aria-label="站点切换">
