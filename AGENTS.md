@@ -6,7 +6,9 @@
 
 ## 项目概览
 
-unvideo：视频解析站（rou.video 无广告播放 + 51吃瓜资讯视频）。
+unvideo：视频解析站。每个上游站点对应一个后端模块（`convex/` 下按来源分文件，
+如 `rou.ts`、`cg51.ts`）+ 对应前端视图；扩展新站点时按此模式新增，不要把
+站点特定逻辑混进通用代码。
 
 - **前端**：React 19 + TypeScript + Vite。静态构建，部署在 **GitHub Pages**
   （纯静态托管，无 SPA 回退）。线上：`https://l0v3lac3.github.io/unvideo/`
@@ -14,8 +16,8 @@ unvideo：视频解析站（rou.video 无广告播放 + 51吃瓜资讯视频）�
   `/api/*`（`VITE_CONVEX_SITE_URL`，`.convex.site` 域），当前**没有**
   `ConvexReactClient`；若将来引入 query/mutation 才需要它，且要用
   `VITE_CONVEX_URL`（`.convex.cloud` 域）。**两个域不同，不要混用。**
-- **为什么抓取在服务端**：rou.video 要求浏览器 UA、响应被 PNG 包裹、不返回
-  CORS 头，因此抓取与解包必须在 Convex 端完成（`convex/rou.ts`）。
+- **为什么抓取在服务端**：上游站点要求浏览器 UA、响应可能被 PNG 包裹、不返回
+  CORS 头，因此抓取与解包必须在 Convex 端完成（`convex/`）。
 
 ## 常用命令
 
