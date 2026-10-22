@@ -30,7 +30,17 @@ export interface Recommendation {
 
 export interface VideoBlock {
   type: "hls" | "mp4";
+  /**
+   * A directly playable stream URL — or, when `pageUrl` is set, the upstream
+   * page URL that must be resolved through the source's video endpoint.
+   */
   url: string;
+  /**
+   * When set, the player must resolve the stream through the source's video
+   * endpoint (`/api/video`) using this page URL, instead of streaming `url`
+   * directly.
+   */
+  pageUrl?: string;
   /** Upstream id, when available (stable key for the player). */
   id?: string;
   poster?: string;
@@ -115,6 +125,12 @@ export interface SiteInfo {
  */
 export interface Source {
   id: string;
+  /**
+   * The source's home mode (drives the frontend home route). A source may
+   * implement both sides; the capability guards below are method-based, not
+   * `kind`-based, so a source can be browsable (feed) *and* resolvable
+   * (video) at once.
+   */
   kind: "video" | "feed";
 
   /* ---------------- video side ---------------- */
@@ -146,17 +162,19 @@ export interface Source {
   fetchTarget?(target: string): Promise<Response>;
 }
 
+/** Method-based: a source with `matchUrl` + `resolve` can resolve page URLs. */
 export function isVideoSource(s: Source): s is Source & {
   matchUrl: (url: string) => boolean;
   resolve: (url: string, origin: string) => Promise<VideoInfo>;
 } {
-  return s.kind === "video" && !!s.matchUrl && !!s.resolve;
+  return !!s.matchUrl && !!s.resolve;
 }
 
+/** Method-based: a source with the feed trio is browsable. */
 export function isFeedSource(s: Source): s is Source & {
   siteInfo: () => Promise<SiteInfo>;
   feed: (path: string, page: number, nodeOverride?: string) => Promise<FeedPage>;
   article: (path: string, nodeOverride?: string) => Promise<Article>;
 } {
-  return s.kind === "feed" && !!s.siteInfo && !!s.feed && !!s.article;
+  return !!s.siteInfo && !!s.feed && !!s.article;
 }

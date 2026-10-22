@@ -27,7 +27,17 @@ import {
   proxySecret,
 } from "../proxy";
 
-import type { Source, VideoInfo } from "./types";
+import type {
+  Article,
+  ArticleBlock,
+  FeedItem,
+  FeedPage,
+  SiteCategory,
+  SiteInfo,
+  Source,
+  VideoBlock,
+  VideoInfo,
+} from "./types";
 export const ROU_ORIGIN = "https://rou.video";
 const PNG_SIG = [137, 80, 78, 71, 13, 10, 26, 10];
 /** Custom PNG chunk type 0x726f5564 = ASCII "roUd" (capital U). */
@@ -104,10 +114,200 @@ export function extractStreamInfo(html: string): RouStreamInfo {
   if (!m) throw new HttpError(502, "ev payload not found in page");
   return decryptEv(m[1], Number(m[2]));
 }
+/* ------------------------------------------------------------------ *
+ * Feed side — rou.video is a React SSR app; its list pages embed a
+ * structured item array and its video pages embed an ld+json VideoObject.
+ * Both are far more reliable than the visible HTML cards, so we parse the
+ * embedded data directly.
+ * ------------------------------------------------------------------ */
+
+/** Unescape a JSON string fragment (the value part, quotes not included). */
+function jsonStr(s: string): string {
+  try {
+    return JSON.parse(`"${s}"`) as string;
+  } catch {
+    return s;
+  }
+}
+
+/** Index of the `}` matching the `{` at `start` (string-aware). */
+function matchBrace(s: string, start: number): number {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** Format seconds as e.g. "1小時57分36秒" / "38分1秒" / "45秒". */
+function formatDuration(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "";
+  const s = Math.round(totalSeconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}小時${m}分${sec}秒`;
+  if (m > 0) return `${m}分${sec}秒`;
+  return `${sec}秒`;
+}
+
+/** Format a view count as e.g. "1.7萬次觀看" / "6,450次觀看". */
+function formatViews(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n >= 10000)
+    return `${(n / 10000).toFixed(1).replace(/\.0$/, "")}萬次觀看`;
+  return `${n.toLocaleString("en-US")}次觀看`;
+}
+
+/** Parse an ISO-8601 duration ("PT643S", "PT1H38M12S") into seconds. */
+function parseIsoDuration(iso: string): number {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?/);
+  if (!m) return 0;
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+}
+
+type RawRouItem = {
+  id: string;
+  vid: string;
+  name: string;
+  tags: string[];
+  createdAt: string;
+  viewCount: number;
+  duration: number;
+  cover: string;
+};
+
+/**
+ * Parse a list page's embedded item array. The array is written as
+ * `videos:$R[n]=[$R[a]={id:"…",vid:…,…},$R[b]={…},…]` — top-level items are
+ * `{id:"…",vid:…` (a `vid` key, possibly null), which distinguishes them from
+ * the nested `sources` entries (`{id:"…",videoId:…`).
+ */
+function extractRouFeed(html: string): { items: RawRouItem[]; totalPage: number } {
+  const totalPage = Number(html.match(/totalPage:(\d+)/)?.[1] ?? 0);
+  const marker = html.indexOf("videos:$R[");
+  if (marker < 0) return { items: [], totalPage };
+  const arrOpen = html.indexOf("[", marker);
+  const spanEnd = html.indexOf("],pageNum:", arrOpen);
+  const span = html.slice(arrOpen, spanEnd < 0 ? html.length : spanEnd);
+  const items: RawRouItem[] = [];
+  for (const m of span.matchAll(/\{id:"[^"]*",vid:/g)) {
+    const start = m.index ?? 0;
+    const end = matchBrace(span, start);
+    if (end < 0) continue;
+    const raw = span.slice(start, end + 1);
+    const id = raw.match(/^\{id:"([^"]*)"/)?.[1] ?? "";
+    if (!id) continue;
+    const tagsM = raw.match(/tags:(?:\$R\[\d+\]=)?\[([^\]]*)\]/);
+    const tags = tagsM
+      ? [...tagsM[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((t) => jsonStr(t[1]))
+      : [];
+    items.push({
+      id,
+      vid: raw.match(/,vid:"([^"]*)"/)?.[1] ?? "",
+      name: jsonStr(raw.match(/,name:"((?:[^"\\]|\\.)*)"/)?.[1] ?? ""),
+      tags,
+      createdAt: raw.match(/createdAt:"([^"]*)"/)?.[1] ?? "",
+      viewCount: Number(raw.match(/viewCount:(\d+)/)?.[1] ?? 0),
+      duration: Number(raw.match(/duration:([\d.]+)/)?.[1] ?? 0),
+      cover: raw.match(/coverImageUrl:"([^"]*)"/)?.[1] ?? "",
+    });
+  }
+  return { items, totalPage };
+}
+
+/** The 6 main categories from the /cat "主分類" grid (slugs stay URL-encoded). */
+function parseRouCategories(html: string): SiteCategory[] {
+  const start = html.indexOf("主分類");
+  const end = html.indexOf("分類精選", start);
+  if (start < 0) return [];
+  const region = html.slice(start, end > start ? end : html.length);
+  const cats: SiteCategory[] = [];
+  const seen = new Set<string>();
+  for (const m of region.matchAll(/<a href="\/t\/([^"/]+)"[\s\S]*?<h2[^>]*>([^<]+)</g)) {
+    const slug = m[1];
+    const name = m[2].trim();
+    // The 分類精選 grid reuses these slugs with a `?order=…` query — the region
+    // cut excludes it, but skip any query-bearing slug as a safety net.
+    if (!name || slug.includes("?") || seen.has(slug)) continue;
+    seen.add(slug);
+    cats.push({ path: `/category/${slug}/`, name });
+  }
+  return cats;
+}
+
+/** The ld+json VideoObject embedded in a video page, if present. */
+function parseVideoObject(html: string): Record<string, unknown> | null {
+  for (const m of html.matchAll(
+    /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g,
+  )) {
+    try {
+      const j = JSON.parse(m[1]) as Record<string, unknown>;
+      if (j["@type"] === "VideoObject") return j;
+    } catch {
+      // Not valid JSON — skip this block.
+    }
+  }
+  return null;
+}
+
+type RawRouRec = { id: string; title: string; cover: string; studio: string };
+
+/** The "相關視頻" list on a video page (bounded by the next `<h2>`). */
+function parseRouRelated(html: string): RawRouRec[] {
+  const start = html.indexOf("相關視頻");
+  if (start < 0) return [];
+  const nextH2 = html.indexOf("<h2", start + 4);
+  const seg = html.slice(start, nextH2 > start ? nextH2 : html.length);
+  const recs: RawRouRec[] = [];
+  for (const part of seg.split('<a href="/v/').slice(1)) {
+    const id = part.match(/^([a-z0-9]+)"/)?.[1] ?? "";
+    if (!id) continue;
+    const title = part.match(/<h3[^>]*>([^<]+)</)?.[1] ?? "";
+    // `<p …>studio · <!-- -->1,234<!-- -->次觀看</p>` — strip comments + tags.
+    const p = part.match(/<p[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+    const ptext = p
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const studio = ptext.includes("·") ? ptext.split("·")[0].trim() : "";
+    const cover = part.match(/<img src="([^"]+)"/)?.[1] ?? "";
+    if (title) recs.push({ id, title, cover, studio });
+  }
+  return recs;
+}
+
+/** Upstream URL for a normalized list path + page (home or category). */
+function buildRouFeedPath(path: string, page: number): string {
+  const q = new URLSearchParams({ order: "createdAt", page: String(Math.max(1, page)) });
+  let p = path || "/";
+  if (!p.startsWith("/")) p = "/" + p;
+  p = p.replace(/\/+$/, "");
+  if (p === "") return `${ROU_ORIGIN}/v?${q}`;
+  const cat = p.match(/^\/category\/([^/]+)\/?$/);
+  if (cat) return `${ROU_ORIGIN}/t/${cat[1]}?${q}`;
+  throw new HttpError(400, "unsupported feed path (use / or /category/<slug>/)");
+}
+
 /** The rou.video source adapter. */
 export const rouSource: Source = {
   id: "rou",
-  kind: "video",
+  kind: "feed",
   matchUrl: (url) => isRouHost(new URL(url).hostname),
   async resolve(url, origin): Promise<VideoInfo> {
     const target = assertResolvable(url);
@@ -133,6 +333,120 @@ export const rouSource: Source = {
         : null,
     };
   },
+
+  /* ---------------- feed side ---------------- */
+
+  async siteInfo(): Promise<SiteInfo> {
+    let categories: SiteCategory[] = [];
+    try {
+      const res = await fetchRou(`${ROU_ORIGIN}/cat`);
+      if (res.ok) categories = parseRouCategories(await res.text());
+    } catch {
+      // No category nav; the home feed still works.
+    }
+    return { src: "rou", node: ROU_ORIGIN, nodeSource: "default", categories };
+  },
+
+  async feed(path, page): Promise<FeedPage> {
+    const res = await fetchRou(buildRouFeedPath(path, page));
+    if (!res.ok) throw new HttpError(502, `upstream returned ${res.status}`);
+    const { items, totalPage } = extractRouFeed(await res.text());
+    return {
+      src: "rou",
+      path,
+      page,
+      totalPages: totalPage,
+      items: items.map((i): FeedItem => {
+        const meta = [
+          i.vid,
+          formatDuration(i.duration),
+          formatViews(i.viewCount),
+        ].filter(Boolean);
+        return {
+          id: i.id,
+          path: `/v/${i.id}/`,
+          title: i.name,
+          cover: i.cover || undefined,
+          published: i.createdAt || undefined,
+          tags: i.tags.length ? i.tags : undefined,
+          meta: meta.length ? meta : undefined,
+        };
+      }),
+    };
+  },
+
+  async article(path): Promise<Article> {
+    const m = path.match(/^\/v\/([a-z0-9]+)\/?$/);
+    if (!m) throw new HttpError(400, "not a rou video path");
+    const id = m[1];
+    const pageUrl = `${ROU_ORIGIN}/v/${id}`;
+    const res = await fetchRou(pageUrl);
+    if (!res.ok) throw new HttpError(502, `upstream returned ${res.status}`);
+    const html = await res.text();
+    const vo = parseVideoObject(html);
+    const og = html.match(/property="og:title" content="([^"]*)"/);
+    const title = (vo?.name as string) || og?.[1] || "";
+
+    const genre = vo?.genre;
+    const categories = Array.isArray(genre)
+      ? (genre as unknown[]).filter((g): g is string => typeof g === "string")
+      : typeof genre === "string" && genre
+        ? [genre]
+        : undefined;
+    const cover = Array.isArray(vo?.thumbnailUrl)
+      ? ((vo!.thumbnailUrl as string[])[0] ?? undefined)
+      : undefined;
+    const views =
+      (vo?.interactionStatistic as { userInteractionCount?: number } | undefined)
+        ?.userInteractionCount;
+    const durationSec = parseIsoDuration((vo?.duration as string) ?? "");
+    const series = vo?.partOfSeries as { name?: string } | undefined;
+    const episode = vo?.episodeNumber as string | number | undefined;
+
+    // One meta line (views · duration · series · episode), only present parts.
+    const metaLine = [
+      formatViews(views ?? 0),
+      formatDuration(durationSec),
+      series?.name,
+      episode != null && episode !== "" ? `第${episode}集` : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    const video: VideoBlock = { type: "hls", url: pageUrl, pageUrl, id };
+    const recs = parseRouRelated(html).map((r) => ({
+      path: `/v/${r.id}/`,
+      title: r.title,
+      cover: r.cover || undefined,
+      desc: r.studio || undefined,
+    }));
+
+    // The related videos render as `rec` blocks (the frontend paints `rec`
+    // blocks as clickable cards); the flat `recommendations` list mirrors it.
+    const blocks: ArticleBlock[] = [];
+    if (metaLine) blocks.push({ type: "p", text: metaLine });
+    blocks.push({ type: "video", video });
+    for (const rec of recs) blocks.push({ type: "rec", rec });
+
+    return {
+      src: "rou",
+      path: `/v/${id}/`,
+      title,
+      description: (vo?.description as string) || undefined,
+      published: (vo?.uploadDate as string) || undefined,
+      categories,
+      cover,
+      video,
+      blocks,
+      recommendations: recs,
+    };
+  },
+
+  matchArticle: (value) => {
+    const m = value.match(/\/v\/([a-z0-9]+)(?:[/?#]|$)/);
+    return m ? `/v/${m[1]}/` : null;
+  },
+
   transformMedia: unwrapPng,
   mediaHosts: (host) => isRouHost(host) || isCdnHost(host),
   fetchTarget: fetchRou,

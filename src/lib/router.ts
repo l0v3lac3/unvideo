@@ -34,7 +34,7 @@ export type PlayRoute = Extract<Route, { kind: 'play' }>;
 
 const MARK = 'unvideo';
 const HOME_PAGE = /^\/page\/(\d+)\/?$/;
-const CATEGORY = /^\/category\/([a-z0-9_-]+)(?:\/(\d+))?\/?$/;
+const CATEGORY = /^\/category\/([^/]+)(?:\/(\d+))?\/?$/;
 const ARTICLE = /^\/archives\/(\d+)\/?$/;
 
 type RouterState = { app: typeof MARK; depth: number };
@@ -131,17 +131,11 @@ export function parseHash(hash: string): { route: Route; canonical: string } {
       );
       return { route, canonical: buildHash(route) };
     }
-    const art = rest.match(ARTICLE);
-    if (art) {
-      const route: Route = {
-        kind: 'article',
-        src: source.id,
-        path: `/archives/${art[1]}/`,
-      };
-      return { route, canonical: buildHash(route) };
-    }
-    // Unknown path under a known source: fall back to its home.
-    const route = feedRoute(source.id, '/', 1);
+    // Any other path under a feed source is an article. The source's
+    // `matchArticle` validates it — invalid paths surface as an article error
+    // instead of silently falling back to the home feed. (Article shapes differ
+    // per source: /archives/<id>/ for cg51, /v/<id>/ for rou, …)
+    const route: Route = { kind: 'article', src: source.id, path: rest };
     return { route, canonical: buildHash(route) };
   }
 

@@ -16,7 +16,13 @@ export type StreamInfo = {
 
 export type VideoBlock = {
   type: 'hls' | 'mp4';
+  /**
+   * A directly playable stream URL — or, when `pageUrl` is set, the upstream
+   * page URL that must be resolved through the source's video endpoint.
+   */
   url: string;
+  /** When set, resolve through the source's video endpoint instead of streaming `url`. */
+  pageUrl?: string;
   id?: string;
   poster?: string;
 };

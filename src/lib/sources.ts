@@ -10,13 +10,7 @@
  * `play`.
  */
 
-import {
-  getArticle,
-  getFeed,
-  getSiteInfo,
-  isRouPageUrl,
-  resolveStream,
-} from './api';
+import { getArticle, getFeed, getSiteInfo } from './api';
 import type { Article, FeedPage, SiteInfo, StreamInfo } from './types';
 
 export type FrontendSource = {
@@ -54,13 +48,11 @@ export const SOURCES: FrontendSource[] = [
   {
     id: 'rou',
     label: 'rou.video',
-    desc: '粘贴视频页链接，无广告播放（服务端解包 + 代理）',
-    kind: 'video',
-    matchPageUrl: isRouPageUrl,
-    urlPlaceholder: '粘贴 rou.video 视频页 URL',
-    urlHint: '请输入 rou.video 的视频页链接，形如 https://rou.video/v/xxxxxxxx',
-    defaultUrl: 'https://rou.video/v/cmv62vyig000qs6nio33zzlw3',
-    resolveVideo: (pageUrl) => resolveStream(pageUrl, 'rou'),
+    desc: 'rou.video 视频库：分类浏览、无广告播放（服务端解包 + 代理）',
+    kind: 'feed',
+    siteInfo: () => getSiteInfo('rou'),
+    feed: (path, page, node) => getFeed('rou', path, page, node),
+    article: (path, node) => getArticle('rou', path, node),
   },
 ];
 

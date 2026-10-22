@@ -43,13 +43,15 @@ function rememberArticle(key: string, article: Article) {
  *  - otherwise → progressive `video.src`
  */
 function videoSource(v: VideoBlock | null | undefined): StreamSource | null {
-  return v
-    ? {
-        kind: 'url',
-        url: v.url,
-        type: v.type === 'hls' ? 'hls' : 'mp4',
-      }
-    : null;
+  if (!v) return null;
+  // `pageUrl` videos must go through the source's video endpoint (rou.video
+  // unwraps the PNG container and signs the playlist server-side).
+  if (v.pageUrl) return { kind: 'rou', pageUrl: v.pageUrl };
+  return {
+    kind: 'url',
+    url: v.url,
+    type: v.type === 'hls' ? 'hls' : 'mp4',
+  };
 }
 
 function RecCard({
