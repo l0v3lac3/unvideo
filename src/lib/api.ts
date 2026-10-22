@@ -79,6 +79,16 @@ export function isRouPageUrl(value: string): boolean {
   }
 }
 
+/**
+ * Normalize an article reference (absolute node URL or a path from the feed /
+ * recommendation cards) to the canonical `/archives/<id>/` path the backend
+ * accepts. Returns null when the value is not an article at all.
+ */
+export function toArticlePath(value: string): string | null {
+  const match = value.match(/\/archives\/(\d+)(?:[/?#]|$)/);
+  return match ? `/archives/${match[1]}/` : null;
+}
+
 /* ------------------------------------------------------------------ *
  * 51吃瓜 (cg51.com) source — node discovery, feeds, articles.
  * ------------------------------------------------------------------ */

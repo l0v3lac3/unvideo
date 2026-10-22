@@ -561,19 +561,17 @@ export function parseArticleBody(bodyHtml: string): Cg51BodyBlock[] {
           const restStart = m.index + m[0].length;
           const rest = bodyHtml.slice(restStart);
           const nextP = rest.match(/<p[^>]*>([\s\S]*?)<\/p>/);
-          if (nextP && nextP[1].includes(`href="${path}"`)) {
+          if (nextP) {
             const imgUrl = nextP[1].match(/data-xkrkllgl="([^"]+)"/)?.[1] ?? "";
-            if (imgUrl) {
-              // The wrapped img is the rec's cover (id-matched). Skip the whole
-              // <p> so its 简要描述 text isn't duplicated.
-              if (nextP[1].includes(`<a href="${path}"><img`)) {
-                cover = imgUrl;
-                desc = (nextP[1].match(/简要描述：<\/strong>\s*([^<]+)/)?.[1] ?? "").trim();
-                skipUntil = restStart + (nextP.index ?? 0) + nextP[0].length;
-              } else {
-                // id mismatch: let the parser emit img + desc separately.
-                cover = "";
-              }
+            const descMatch =
+              nextP[1].match(/简要描述：<\/strong>\s*([^<]+)/)?.[1] ?? "";
+            // The next <p> is the rec's cover when it wraps an image with a
+            // 简要描述 note — even if the site points its <a> at a different
+            // (wrong) id. Treat it as this rec's cover and skip the <p>.
+            if (imgUrl && descMatch) {
+              cover = imgUrl;
+              desc = descMatch.trim();
+              skipUntil = restStart + (nextP.index ?? 0) + nextP[0].length;
             }
           }
         }

@@ -360,11 +360,16 @@ code {
 
 .pager {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 10px;
   margin-top: 14px;
   font-size: 0.8rem;
+}
+
+.pager-top {
+  margin: 0 0 12px;
 }
 
 .pager button {

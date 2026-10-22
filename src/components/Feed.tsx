@@ -1,6 +1,27 @@
 import { useEffect, useState } from 'react';
 import { getFeed, type FeedItem, type FeedResult } from '../lib/api';
 
+/**
+ * Feed pages are kept for the session so back/forward and tab switches repaint
+ * the list immediately (and scroll restoration has a stable height to land on).
+ * A fresh fetch always runs in the background to pick up new posts.
+ */
+const feedCache = new Map<string, FeedResult>();
+const FEED_CACHE_LIMIT = 60;
+
+function cacheKey(node: string, path: string, page: number): string {
+  return `${node}|${path}|${page}`;
+}
+
+function remember(key: string, result: FeedResult) {
+  feedCache.set(key, result);
+  while (feedCache.size > FEED_CACHE_LIMIT) {
+    const oldest = feedCache.keys().next().value;
+    if (oldest === undefined) break;
+    feedCache.delete(oldest);
+  }
+}
+
 /** One row in the feed. */
 function FeedCard({
   item,
@@ -46,31 +67,102 @@ function FeedCard({
 }
 
 /**
+ * Prev/next, the current page indicator, a page input and an explicit jump
+ * button. Rendered both above and below the grid so deep paging (thousands of
+ * pages) does not require scrolling to the bottom and back.
+ */
+function PageControls({
+  page,
+  totalPages,
+  onPageChange,
+  className = '',
+}: {
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(String(page));
+
+  const jump = () => {
+    const value = Number(draft);
+    if (!Number.isInteger(value) || value < 1) {
+      setDraft(String(page));
+      return;
+    }
+    const target = Math.min(totalPages, value);
+    setDraft(String(target));
+    if (target !== page) onPageChange(target);
+  };
+
+  return (
+    <div className={`pager${className ? ` ${className}` : ''}`}>
+      <button disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+        上一页
+      </button>
+      <span>
+        {page} / {totalPages}
+      </span>
+      <input
+        type="number"
+        min={1}
+        max={totalPages}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            jump();
+          }
+        }}
+        aria-label="页码"
+      />
+      <button onClick={jump}>跳转</button>
+      <button
+        disabled={page >= totalPages}
+        onClick={() => onPageChange(page + 1)}
+      >
+        下一页
+      </button>
+    </div>
+  );
+}
+
+/**
  * Paginated feed (home or category). Fetches through the Convex backend so the
  * browser never needs CORS to the node, and hands a chosen item up to the
  * parent to open as an article.
+ *
+ * `page` is owned by the route (not local state) so the browser back button and
+ * in-app paging stay in sync. Mount with a key that includes path+page to reset
+ * the view when the route changes.
  */
 export function Feed({
   path,
+  page,
   node,
   onOpen,
+  onPageChange,
 }: {
   path: string;
+  page: number;
   node: string;
   onOpen: (item: FeedItem) => void;
+  onPageChange: (page: number) => void;
 }) {
-  const [page, setPage] = useState(1);
-  const [data, setData] = useState<FeedResult | null>(null);
-  const [loading, setLoading] = useState(true);
+  const key = cacheKey(node, path, page);
+  const [data, setData] = useState<FeedResult | null>(
+    () => feedCache.get(key) ?? null,
+  );
+  const [loading, setLoading] = useState(() => !feedCache.has(key));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
     getFeed(path, page, node)
       .then((res) => {
         if (cancelled) return;
+        remember(key, res);
         setData(res);
         setLoading(false);
       })
@@ -82,12 +174,26 @@ export function Feed({
     return () => {
       cancelled = true;
     };
-  }, [path, page, node]);
+  }, [key, path, page, node]);
 
   const totalPages = data?.totalPages ?? 0;
 
+  const goToPage = (next: number) => {
+    if (next < 1 || next > totalPages || next === page) return;
+    onPageChange(next);
+  };
+
   return (
     <section className="feed">
+      {data && totalPages > 1 ? (
+        <PageControls
+          className="pager-top"
+          page={page}
+          totalPages={totalPages}
+          onPageChange={goToPage}
+        />
+      ) : null}
+
       <div className="feed-grid">
         {loading && !data
           ? Array.from({ length: 8 }).map((_, i) => (
@@ -100,35 +206,12 @@ export function Feed({
 
       {error ? <p className="hint">{error}</p> : null}
 
-      {!loading && totalPages > 1 ? (
-        <div className="pager">
-          <button
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            上一页
-          </button>
-          <span>
-            {page} / {totalPages}
-          </span>
-          <input
-            type="number"
-            min={1}
-            max={totalPages}
-            value={page}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              if (v >= 1) setPage(Math.min(totalPages, v));
-            }}
-            aria-label="页码"
-          />
-          <button
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-          >
-            下一页
-          </button>
-        </div>
+      {data && totalPages > 1 ? (
+        <PageControls
+          page={page}
+          totalPages={totalPages}
+          onPageChange={goToPage}
+        />
       ) : null}
     </section>
   );

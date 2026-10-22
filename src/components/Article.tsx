@@ -6,6 +6,30 @@ import {
   type Cg51BodyBlock,
   type Cg51Rec,
 } from '../lib/api';
+import { restoreScroll } from '../lib/router';
+
+/**
+ * Parsed articles are cached for the session: returning via back/forward (or a
+ * recommendation) repaints instantly instead of showing a blank page while the
+ * node is scraped again. A background revalidation still runs on every mount.
+ */
+const articleCache = new Map<string, Cg51Article>();
+const ARTICLE_CACHE_LIMIT = 30;
+/** Original <title>, restored when leaving the article. */
+const BASE_TITLE = document.title;
+
+function cacheKey(node: string, path: string): string {
+  return `${node}|${path}`;
+}
+
+function rememberArticle(key: string, article: Cg51Article) {
+  articleCache.set(key, article);
+  while (articleCache.size > ARTICLE_CACHE_LIMIT) {
+    const oldest = articleCache.keys().next().value;
+    if (oldest === undefined) break;
+    articleCache.delete(oldest);
+  }
+}
 
 /**
  * Article detail in the original site's layout: metadata up top, then the
@@ -103,16 +127,19 @@ export function Article({
   node: string;
   onOpenPath: (path: string) => void;
 }) {
-  const [article, setArticle] = useState<Cg51Article | null>(null);
+  const key = cacheKey(node, path);
+  const [article, setArticle] = useState<Cg51Article | null>(
+    () => articleCache.get(key) ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setArticle(null);
-    setError(null);
     getArticle(path, node)
       .then((res) => {
-        if (!cancelled) setArticle(res);
+        if (cancelled) return;
+        rememberArticle(key, res);
+        setArticle(res);
       })
       .catch((err) => {
         if (!cancelled)
@@ -121,7 +148,18 @@ export function Article({
     return () => {
       cancelled = true;
     };
-  }, [path, node]);
+  }, [key, path, node]);
+
+  // Keep the tab title in sync (useful when several articles are in history)
+  // and let the router apply a remembered scroll offset once content exists.
+  useEffect(() => {
+    if (!article) return;
+    document.title = `${article.title} · rouvideo`;
+    restoreScroll();
+    return () => {
+      document.title = BASE_TITLE;
+    };
+  }, [article]);
 
   // Fallback for the legacy shape (no ordered body): old description+gallery.
   const hasBody = !!article?.body.length;
@@ -129,6 +167,8 @@ export function Article({
   return (
     <section className="article">
       {error ? <p className="hint">{error}</p> : null}
+
+      {!article && !error ? <p className="status">正在加载文章…</p> : null}
 
       {article ? (
         <>
