@@ -3,7 +3,6 @@ import type { FormEvent } from 'react';
 import { Player, type StreamSource } from './components/Player';
 import { Feed } from './components/Feed';
 import { Article } from './components/Article';
-import { Home } from './components/Home';
 import { SOURCES, sourceById, sourceHomeRoute } from './lib/sources';
 import type { FeedItem, SiteInfo } from './lib/types';
 import {
@@ -166,9 +165,6 @@ export default function App() {
       </header>
 
       <nav className="sites" aria-label="站点切换">
-        <a className={activeSrc === null ? 'site active' : 'site'} href="#/">
-          首页
-        </a>
         {SOURCES.map((s) => (
           <button
             key={s.id}
@@ -185,8 +181,6 @@ export default function App() {
           ← 返回
         </button>
       ) : null}
-
-      {route.kind === 'home' ? <Home /> : null}
 
       {route.kind === 'play' ? (
         <section>
