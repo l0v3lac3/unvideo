@@ -165,7 +165,7 @@ export interface Source {
   /* ---------------- feed side ---------------- */
   /** Site info: content node + category nav. */
   siteInfo?(): Promise<SiteInfo>;
-  /** List one page of a feed (path e.g. `/` or `/category/<slug>/`). */
+  /** List one page of a feed (path e.g. `/`, `/category/<slug>/`, `/search/<query>/`). */
   feed?(path: string, page: number, nodeOverride?: string): Promise<FeedPage>;
   /** Resolve one article page. */
   article?(path: string, nodeOverride?: string): Promise<Article>;

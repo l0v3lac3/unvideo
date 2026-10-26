@@ -261,8 +261,10 @@ export function parseCategories(html: string): Cg51Category[] {
  *  /            page 1 → /          page N → /page/N/
  *  /category/x  page 1 → /category/x/   page N → /category/x/N/
  *  /tag/x       page 1 → /tag/x/    page N → /tag/x/N/
+ *  /search/q    page 1 → /search/q/   page N → /search/q/N/
+ * (the search query stays URL-encoded as a single segment)
  * Anything else is rejected (the feed is browsable by home + categories
- * + tag pages only).
+ * + tag pages + search only).
  */
 export function buildFeedPath(path: string, page: number): string {
   let p = path || "/";
@@ -272,6 +274,7 @@ export function buildFeedPath(path: string, page: number): string {
   if (p === "") return `/page/${page}/`;
   if (/^\/category\/[a-z0-9]+$/.test(p)) return `${p}/${page}/`;
   if (/^\/tag\/[^/]+$/.test(p)) return `${p}/${page}/`;
+  if (/^\/search\/[^/]+$/.test(p)) return `${p}/${page}/`;
   throw new HttpError(400, "unsupported feed path (use / or /category/<slug>)");
 }
 
@@ -330,6 +333,55 @@ export function parseFeed(html: string, node: string, path: string, page: number
   }
   let totalPages = 0;
   for (const m of html.matchAll(/\/(?:page|category\/[a-z0-9]+|tag\/[^/]+)\/(\d+)\//g)) {
+    totalPages = Math.max(totalPages, Number(m[1]));
+  }
+  return { node: base, path, page, totalPages, items };
+}
+
+/**
+ * Parse a search-results page. The result cards use a different skin from
+ * the feed cards:
+ *  - `url mainEntityOfPage` is an *absolute* URL;
+ *  - the matched keyword inside the title is wrapped in
+ *    `<em class="search-keyword">` (strip tags to get the plain title);
+ *  - pagination lives in `/search/<q>/N/` links / `data-total-page`.
+ * A query with no results yields 0 cards (the page says 没有找到内容).
+ */
+export function parseSearch(html: string, node: string, path: string, page: number): RawFeedResult {
+  const base = node.replace(/\/+$/, "");
+  const items: RawFeedItem[] = [];
+  for (const block of html.match(ARTICLE_BLOCK) ?? []) {
+    const url = block.match(
+      /itemprop="url mainEntityOfPage" content="(?:[^"]*?)?(\/archives\/\d+)\/"/,
+    );
+    if (!url) continue;
+    const pub = block.match(/itemprop="datePublished" content="([^"]+)"/);
+    if (!pub) continue;
+    const title = block.match(/itemprop="headline"[^>]*>([\s\S]*?)<\/h2>/);
+    const cover =
+      block.match(/loadBannerDirect\('([^']+)'/) ?? block.match(/data-xkrkllgl="([^"]+)"/);
+    const author = block.match(/itemprop="author"[^>]*>\s*([^<]+?)\s*•/);
+    const cats = block.match(
+      /itemprop="datePublished" content="[^"]*"[^>]*>[^<]*<\/span>\s*<span>([^<]*?)<\/span>/,
+    );
+    const views = block.match(/<span>([\d.]+)万?浏览量<\/span>/);
+    const id = url[1].match(/\d+/)?.[0] ?? "";
+    const coverUrl = cover?.[1] ?? "";
+    items.push({
+      id,
+      url: `${base}${url[1]}`,
+      title: title ? stripTags(title[1]).trim() : "",
+      cover: coverUrl.startsWith("http") ? coverUrl : coverUrl ? `${base}${coverUrl}` : "",
+      published: pub?.[1] ?? "",
+      author: author?.[1].trim() ?? "",
+      categories: cats
+        ? cats[1].replace(/[•]/g, "").split(",").map(c => c.trim()).filter(Boolean)
+        : [],
+      views: views ? views[1] : "",
+    });
+  }
+  let totalPages = Number(html.match(/data-total-page="(\d+)"/)?.[1] ?? 0);
+  for (const m of html.matchAll(/\/search\/[^/]+\/(\d+)\/"/g)) {
     totalPages = Math.max(totalPages, Number(m[1]));
   }
   return { node: base, path, page, totalPages, items };
@@ -738,6 +790,9 @@ const IMG_HOSTS = new Set([
   "pic.gyezbp.cn",
   "pic.jtzatly.cn",
   "pic.bxh666.cn",
+  // CDN rotation: the node's covers moved here (2026-10-26) — verified the
+  // same key/IV decrypts these hosts' bytes, so they join the allowlist.
+  "pic.sugfew.cn",
 ]);
 
 export function isCg51ImageHost(host: string): boolean {
@@ -865,7 +920,11 @@ export const cg51Source: Source = {
     const base = await getNodeForRequest(nodeOverride);
     const feedPath = buildFeedPath(path, page);
     const html = await fetchNodeText(feedPath, base);
-    const result = parseFeed(html, base, feedPath, page);
+    // Search results use a different card skin (absolute URLs, keyword
+    // highlights in titles) — parsed separately.
+    const result = path.startsWith("/search/")
+      ? parseSearch(html, base, path, page)
+      : parseFeed(html, base, feedPath, page);
     // The card's category span holds names only; the same page's nav maps
     // name → slug so the chips can link to the category list.
     const slugByName = new Map(parseCategories(html).map(c => [c.name, c.slug]));

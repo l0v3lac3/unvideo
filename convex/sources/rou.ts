@@ -367,6 +367,7 @@ const ROU_ORDERS = new Set(["createdAt", "likeCount"]);
  *  /                       home feed
  *  /category/<slug>/       category feed
  *  /category/<order>/<slug>/  category feed sorted (e.g. 分類精選)
+ *  /search/<query>/        search results (video tab, relevance order)
  * Slugs in the normalized path are already URL-encoded — pass through.
  */
 function buildRouFeedPath(path: string, page: number): string {
@@ -378,6 +379,17 @@ function buildRouFeedPath(path: string, page: number): string {
     page: String(Math.max(1, page)),
   });
   if (p === "") return `${ROU_ORIGIN}/v?${q}`;
+  const search = p.match(/^\/search\/(.+)$/);
+  if (search) {
+    let query = search[1];
+    try {
+      query = decodeURIComponent(query);
+    } catch {
+      // Keep the raw slug if it is not valid percent-encoding.
+    }
+    const sq = new URLSearchParams({ q: query, page: String(Math.max(1, page)) });
+    return `${ROU_ORIGIN}/search?${sq}`;
+  }
   const cat = p.match(/^\/category\/(.+)$/);
   if (!cat) throw new HttpError(400, "unsupported feed path (use / or /category/<slug>/)");
   const segs = cat[1].split("/").filter(Boolean);
@@ -393,6 +405,33 @@ function buildRouFeedPath(path: string, page: number): string {
   if (!slug) throw new HttpError(400, "unsupported feed path (use / or /category/<slug>/)");
   q.set("order", order);
   return `${ROU_ORIGIN}/t/${slug}?${q}`;
+}
+
+/**
+ * Map a raw list item onto the normalized FeedItem. Home / category feeds
+ * and search results all embed the same item shape, so they share this.
+ */
+function toFeedItem(i: RawRouItem): FeedItem {
+  const meta = [
+    i.vid,
+    formatDuration(i.duration),
+    formatViews(i.viewCount),
+  ].filter(Boolean);
+  return {
+    id: i.id,
+    path: `/v/${i.id}/`,
+    title: i.name,
+    cover: i.cover || undefined,
+    published: i.createdAt || undefined,
+    // Tags are /t/<name>/ list pages — the normalized category path.
+    tags: i.tags.length
+      ? i.tags.map((name) => ({
+          name,
+          path: `/category/${encodeURIComponent(name)}/`,
+        }))
+      : undefined,
+    meta: meta.length ? meta : undefined,
+  };
 }
 
 /** The rou.video source adapter. */
@@ -485,28 +524,7 @@ export const rouSource: Source = {
       path,
       page,
       totalPages: totalPage,
-      items: items.map((i): FeedItem => {
-        const meta = [
-          i.vid,
-          formatDuration(i.duration),
-          formatViews(i.viewCount),
-        ].filter(Boolean);
-        return {
-          id: i.id,
-          path: `/v/${i.id}/`,
-          title: i.name,
-          cover: i.cover || undefined,
-          published: i.createdAt || undefined,
-          // Tags are /t/<name>/ list pages — the normalized category path.
-          tags: i.tags.length
-            ? i.tags.map((name) => ({
-                name,
-                path: `/category/${encodeURIComponent(name)}/`,
-              }))
-            : undefined,
-          meta: meta.length ? meta : undefined,
-        };
-      }),
+      items: items.map(toFeedItem),
     };
   },
 

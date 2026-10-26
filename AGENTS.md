@@ -70,6 +70,8 @@ convex/
   - `#/`（首页站点卡片）
   - `#/<src>/`、`#/<src>/page/N/`（feed 首页/分页）
   - `#/<src>/category/<slug>/[N]/`（feed 分类；slug 可含 URL 编码中文）
+  - `#/<src>/search/<query>/[N]/`（feed 搜索；query 整体 URL 编码为单段；
+    原站：cg51 `/search/<q>/[N]/`、rou `/search?q=<q>&page=N`）
   - `#/<src>/<文章路径>`（**feed 源下其余任意路径都当文章**，由
     `matchArticle` 校验；如 cg51 的 `/archives/<id>/`、rou 的 `/v/<id>/`）
   - `#/<src>?url=<page-url>`（纯视频源播放器）

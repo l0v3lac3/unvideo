@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getFeed } from '../lib/api';
+import { searchQueryOf } from '../lib/router';
 import type { FeedItem, FeedPage } from '../lib/types';
 
 /**
@@ -209,6 +210,12 @@ export function Feed({
 
   const totalPages = data?.totalPages ?? 0;
 
+  // Search results list (path = /search/<query>/): show a heading with the
+  // decoded query and an explicit no-results state (upstream pages with no
+  // matches simply render 0 cards).
+  const isSearch = path.startsWith('/search/');
+  const searchQuery = isSearch ? searchQueryOf(path) : '';
+
   const goToPage = (next: number) => {
     if (next < 1 || next > totalPages || next === page) return;
     onPageChange(next);
@@ -216,6 +223,16 @@ export function Feed({
 
   return (
     <section className="feed">
+      {isSearch ? (
+        <h2 className="feed-search-head">搜索「{searchQuery}」的结果</h2>
+      ) : null}
+      {data && data.items.length === 0 ? (
+        <p className="status">
+          {isSearch
+            ? `没有搜到「${searchQuery}」的相关内容，换个关键词试试`
+            : '没有内容'}
+        </p>
+      ) : null}
       {data && totalPages > 1 ? (
         <PageControls
           className="pager-top"

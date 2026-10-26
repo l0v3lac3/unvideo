@@ -216,7 +216,8 @@ http.route({
   handler: httpAction((_ctx: ActionCtx, req: Request) => handleVideo(req)),
 });
 
-// List feed items for a list path (home or category).
+// List feed items for a list path (home, category, tag or search:
+// path = `/search/<query>/` is a search-results list).
 http.route({
   path: "/api/feed",
   method: "GET",

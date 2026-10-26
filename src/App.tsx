@@ -14,6 +14,7 @@ import {
   isFeedPath,
   navigate,
   routeKey,
+  searchQueryOf,
   useHashRoute,
   useScrollRestoration,
   type Route,
@@ -156,6 +157,21 @@ export default function App() {
     navigate({ kind: 'play', src: route.src, url });
   };
 
+  /**
+   * Keyword search for the active feed source: navigates to the normalized
+   * search path (a feed route), so results render through the same list
+   * view as home/categories.
+   */
+  const submitSearch = (query: string) => {
+    if (route.kind !== 'feed' && route.kind !== 'article') return;
+    navigate({
+      kind: 'feed',
+      src: route.src,
+      path: `/search/${encodeURIComponent(query)}/`,
+      page: 1,
+    });
+  };
+
   const playSource: StreamSource | null =
     route.kind === 'play' && route.url
       ? { kind: 'rou', pageUrl: route.url }
@@ -200,6 +216,15 @@ export default function App() {
             </button>
           ))}
         </nav>
+
+        {route.kind === 'feed' || route.kind === 'article' ? (
+          <SearchBar
+            key={`${route.src}:${route.kind === 'feed' ? searchQueryOf(route.path) : ''}`}
+            label={source?.label ?? route.src}
+            initial={route.kind === 'feed' ? searchQueryOf(route.path) : ''}
+            onSubmit={submitSearch}
+          />
+        ) : null}
 
         {route.kind === 'article' ? (
           <button className="back-btn" onClick={() => navigate(backFallback())}>
@@ -496,5 +521,44 @@ function CatButton({
         {open ? '▾' : '▸'}
       </button>
     </span>
+  );
+}
+
+/**
+ * Keyword search box (feed sources). Mounted with a key derived from
+ * `initial` (see App), so navigating to a new search (or leaving one)
+ * remounts the box with the right starting value — no effect sync needed.
+ * Empty submissions are ignored.
+ */
+function SearchBar({
+  label,
+  initial,
+  onSubmit,
+}: {
+  label: string;
+  initial: string;
+  onSubmit: (query: string) => void;
+}) {
+  const [value, setValue] = useState(initial);
+
+  return (
+    <form
+      className="search-bar"
+      role="search"
+      onSubmit={(e: FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        const q = value.trim();
+        if (q) onSubmit(q);
+      }}
+    >
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder={`在 ${label} 中搜索…`}
+        aria-label={`在 ${label} 中搜索`}
+        spellCheck={false}
+      />
+      <button type="submit">搜索</button>
+    </form>
   );
 }

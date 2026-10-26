@@ -18,11 +18,14 @@ import { sourceById } from './sources';
  *   #/<src>/category/x/2/   feed source category, page 2
  *   #/<src>/category/o/x/   feed source category (sorted variant)
  *   #/<src>/tag/<name>/[N/] feed source tag list, page N
+ *   #/<src>/search/<q>/     feed source search results, page 1
+ *   #/<src>/search/<q>/2/   feed source search results, page 2
  *   #/<src>/archives/123/   article
  *   #/<src>?url=<page-url>  video source player
  *
- * Category/tag slugs are opaque (URL-encoded, possibly multi-segment for
- * sorted variants) — the adapters own their meaning.
+ * Category/tag/search slugs are opaque (URL-encoded; search queries are
+ * one encoded segment), possibly multi-segment for sorted variants — the
+ * adapters own their meaning.
  *
  * Legacy (pre-source-prefix) hashes keep working: #/archives/123/,
  * #/category/x/[n]/, #/tag/x/[n]/, #/page/n/ all map to the 'cg51' source,
@@ -39,15 +42,15 @@ export type PlayRoute = Extract<Route, { kind: 'play' }>;
 
 const MARK = 'unvideo';
 const HOME_PAGE = /^\/page\/(\d+)\/?$/;
-const LIST = /^\/(category|tag)\/(.+)$/;
+const LIST = /^\/(category|tag|search)\/(.+)$/;
 const ARTICLE = /^\/archives\/(\d+)\/?$/;
 
 type RouterState = { app: typeof MARK; depth: number };
 
 /**
- * A normalized list path: `/category/…` or `/tag/…` (slugs URL-encoded,
- * possibly multi-segment for sorted variants), plus an optional trailing
- * page number. Returns null when `rest` is not a list path.
+ * A normalized list path: `/category/…`, `/tag/…` or `/search/<query>/`
+ * (slugs URL-encoded; sorted category variants are multi-segment), plus an
+ * optional trailing page number. Returns null when `rest` is not a list path.
  */
 function parseListPath(src: string, rest: string): Route | null {
   const m = rest.match(LIST);
@@ -55,8 +58,10 @@ function parseListPath(src: string, rest: string): Route | null {
   let base = `/${m[1]}/${m[2]}`;
   let page = 1;
   // Trailing `/N/` is a page number only when at least one non-numeric
-  // segment precedes it (a category literally named "2024" is not a page).
-  const paged = base.match(/^(\/(?:category|tag)\/.+)\/(\d+)\/?$/);
+  // segment precedes it (a category literally named "2024" — or a search
+  // query that is just "2024" — is not a page). Group 1 keeps the full list
+  // path with its prefix, so the route path stays a normalized list path.
+  const paged = base.match(/^(\/(?:category|tag|search)\/.+)\/(\d+)\/?$/);
   if (paged) {
     base = paged[1];
     page = clampPage(Number(paged[2]));
@@ -65,11 +70,23 @@ function parseListPath(src: string, rest: string): Route | null {
 }
 
 /**
- * True for normalized list paths (home / category / tag). Any other in-source
- * path under a feed source is an article (validated by `matchArticle`).
+ * True for normalized list paths (home / category / tag / search). Any other
+ * in-source path under a feed source is an article (validated by
+ * `matchArticle`).
  */
 export function isFeedPath(path: string): boolean {
-  return path === '/' || /^\/(category|tag)\/.+/.test(path);
+  return path === '/' || /^\/(category|tag|search)\/.+/.test(path);
+}
+
+/** Decoded query of a normalized search path; '' for non-search paths. */
+export function searchQueryOf(path: string): string {
+  if (!path.startsWith('/search/')) return '';
+  const raw = path.slice('/search/'.length).replace(/\/+$/, '');
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 /** URL for a route, always in canonical form. */

@@ -450,6 +450,82 @@ body::after {
 }
 
 /* ------------------------------------------------------------------ *
+ * Search bar (feed sources) — same shape as the URL bar, magenta accent
+ * ------------------------------------------------------------------ */
+.search-bar {
+  display: flex;
+  gap: 10px;
+}
+
+.search-bar input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--cut)) 0,
+    100% var(--cut),
+    100% 100%,
+    var(--cut) 100%,
+    0 calc(100% - var(--cut))
+  );
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.search-bar input::placeholder {
+  color: #4d5570;
+}
+
+.search-bar input:focus-visible {
+  outline: none;
+  border-color: var(--magenta);
+  box-shadow:
+    0 0 0 1px var(--magenta),
+    0 0 14px rgba(255, 46, 196, 0.25);
+}
+
+.search-bar button {
+  padding: 11px 26px;
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #160416;
+  background: var(--magenta);
+  border: none;
+  clip-path: polygon(
+    0 0,
+    calc(100% - var(--cut)) 0,
+    100% var(--cut),
+    100% 100%,
+    var(--cut) 100%,
+    0 calc(100% - var(--cut))
+  );
+  cursor: pointer;
+  filter: drop-shadow(0 0 8px rgba(255, 46, 196, 0.4));
+  transition:
+    filter 0.15s,
+    background 0.15s,
+    transform 0.1s;
+}
+
+.search-bar button:hover {
+  background: #ff6fd0;
+  filter: drop-shadow(0 0 12px rgba(255, 46, 196, 0.7));
+}
+
+.search-bar button:active {
+  transform: translateY(1px);
+}
+
+/* ------------------------------------------------------------------ *
  * Player
  * ------------------------------------------------------------------ */
 .player {
@@ -751,6 +827,22 @@ code {
 /* ------------------------------------------------------------------ *
  * Feed grid + cards
  * ------------------------------------------------------------------ */
+/* Search-results heading (above the grid, on /search/<q>/ pages). */
+.feed-search-head {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.feed-search-head::before {
+  content: '//';
+  margin-right: 8px;
+  color: var(--magenta);
+  font-family: var(--font-mono);
+}
+
 .feed-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
