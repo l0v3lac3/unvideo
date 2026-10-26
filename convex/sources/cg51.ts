@@ -352,7 +352,7 @@ export function parseSearch(html: string, node: string, path: string, page: numb
   const items: RawFeedItem[] = [];
   for (const block of html.match(ARTICLE_BLOCK) ?? []) {
     const url = block.match(
-      /itemprop="url mainEntityOfPage" content="(?:[^"]*?)?(\/archives\/\d+)\/"/,
+      /itemprop="url mainEntityOfPage" content="(?:[^"]*?)?(\/archives\/\d+\/)"/,
     );
     if (!url) continue;
     const pub = block.match(/itemprop="datePublished" content="([^"]+)"/);
