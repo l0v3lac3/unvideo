@@ -23,6 +23,7 @@ convex/tart
 .claude/
 .agents/
 .playwright-mcp/
+.playwright-cli/
 
 # Editor directories and files
 .vscode/*
