@@ -289,7 +289,12 @@ export function parseFeed(html: string, node: string, path: string, page: number
     const url = block.match(ARCHIVE_PATH);
     if (!url) continue;
     const title = block.match(/itemprop="headline">\s*([^<]+?)\s*</);
-    const cover = block.match(/loadBannerDirect\('([^']+)'/) ?? block.match(/data-xkrkllgl="([^"]+)"/);
+    // Three generations of card banner markup; the 2026-10 skin moved to the
+    // declarative `z-bg-loader-url` background attribute (image.20260416.js).
+    const cover =
+      block.match(/loadBannerDirect\('([^']+)'/) ??
+      block.match(/z-bg-loader-url="([^"]+)"/) ??
+      block.match(/data-xkrkllgl="([^"]+)"/);
     const pub = block.match(/itemprop="datePublished" content="([^"]+)"/);
     // Station promo/ad cards (Meme coin, 招募, 抽奖, 福利) omit the whole
     // post-card-info meta row (no author / date / category span). Legit
@@ -358,8 +363,11 @@ export function parseSearch(html: string, node: string, path: string, page: numb
     const pub = block.match(/itemprop="datePublished" content="([^"]+)"/);
     if (!pub) continue;
     const title = block.match(/itemprop="headline"[^>]*>([\s\S]*?)<\/h2>/);
+    // Three generations of card banner markup (see parseFeed).
     const cover =
-      block.match(/loadBannerDirect\('([^']+)'/) ?? block.match(/data-xkrkllgl="([^"]+)"/);
+      block.match(/loadBannerDirect\('([^']+)'/) ??
+      block.match(/z-bg-loader-url="([^"]+)"/) ??
+      block.match(/data-xkrkllgl="([^"]+)"/);
     const author = block.match(/itemprop="author"[^>]*>\s*([^<]+?)\s*•/);
     const cats = block.match(
       /itemprop="datePublished" content="[^"]*"[^>]*>[^<]*<\/span>\s*<span>([^<]*?)<\/span>/,
@@ -580,6 +588,17 @@ function extractVideoFromDplayer(attrs: string): Cg51Video | null {
 }
 
 /**
+ * The `<img>`'s declarative loader URL — two generations of attribute,
+ * both pointing at the same AES-encrypted CDN (see transformImage):
+ *  - `z-image-loader-url` — unified loader (image.20260416.js, 2026-10)
+ *  - `data-xkrkllgl` — older attribute (site JS still ships its decryptor)
+ */
+function matchImgLoaderUrl(scope: string): string {
+  const m = scope.match(/z-image-loader-url="([^"]+)"|data-xkrkllgl="([^"]+)"/);
+  return m ? m[1] || m[2] || "" : "";
+}
+
+/**
  * Parse the ordered articleBody HTML into blocks in original site order:
  * paragraphs, headings, images, in-body videos, quote boxes and recommendation
  * ("推介") entries. The station gambling `txt-apps` row, `line` dividers and
@@ -621,7 +640,7 @@ export function parseArticleBody(bodyHtml: string): Cg51BodyBlock[] {
       if (recLink) {
         const path = recLink[1];
         const title = stripTags(recLink[2]);
-        let cover = inner.match(/data-xkrkllgl="([^"]+)"/)?.[1] ?? "";
+        let cover = matchImgLoaderUrl(inner);
         let desc = "";
         if (!cover) {
           // Collection format: the cover + 简要描述 live in the NEXT <p>.
@@ -634,7 +653,7 @@ export function parseArticleBody(bodyHtml: string): Cg51BodyBlock[] {
           const rest = bodyHtml.slice(restStart);
           const nextP = rest.match(/<p[^>]*>([\s\S]*?)<\/p>/);
           if (nextP) {
-            const imgUrl = nextP[1].match(/data-xkrkllgl="([^"]+)"/)?.[1] ?? "";
+            const imgUrl = matchImgLoaderUrl(nextP[1]);
             const descMatch =
               nextP[1].match(/简要描述：<\/strong>\s*([^<]+)/)?.[1] ?? "";
             // The next <p> is the rec's cover when it wraps an image with a
@@ -651,8 +670,8 @@ export function parseArticleBody(bodyHtml: string): Cg51BodyBlock[] {
         continue;
       }
       const text = stripTags(inner);
-      const imgSrc = inner.match(/data-xkrkllgl="([^"]+)"/)?.[1] ??
-        inner.match(/<img[^>]+src="(https:[^"]+)"/)?.[1];
+      const imgSrc =
+        matchImgLoaderUrl(inner) || inner.match(/<img[^>]+src="(https:[^"]+)"/)?.[1];
       // Push text and image separately (both, in order) so a mixed paragraph
       // is preserved; image-only paragraphs yield just an img block. The
       // in-body 关键词 hashtag list is dropped (tags already come from
