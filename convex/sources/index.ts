@@ -4,11 +4,12 @@
  */
 
 import { HttpError } from "../proxy";
+import { nineOneSource } from "./91porn";
 import { cg51Source, legacyNodeInfo } from "./cg51";
 import { rouSource } from "./rou";
 import type { Source } from "./types";
 
-export const SOURCES: Source[] = [rouSource, cg51Source];
+export const SOURCES: Source[] = [rouSource, cg51Source, nineOneSource];
 
 const byId = new Map<string, Source>(SOURCES.map((s) => [s.id, s]));
 

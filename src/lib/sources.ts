@@ -46,6 +46,15 @@ export const SOURCES: FrontendSource[] = [
     article: (path, node) => getArticle('cg51', path, node),
   },
   {
+    id: '91porn',
+    label: '91porn',
+    desc: '91porn：分类浏览、MP4 直连播放（CDN 直出，无需代理）',
+    kind: 'feed',
+    siteInfo: () => getSiteInfo('91porn'),
+    feed: (path, page, node) => getFeed('91porn', path, page, node),
+    article: (path, node) => getArticle('91porn', path, node),
+  },
+  {
     id: 'rou',
     label: 'rou.video',
     desc: 'rou.video 视频库：分类浏览、无广告播放（服务端解包 + 代理）',
