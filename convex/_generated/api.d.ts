@@ -10,6 +10,7 @@
 
 import type * as http from "../http.js";
 import type * as proxy from "../proxy.js";
+import type * as sources_91porn from "../sources/91porn.js";
 import type * as sources_cg51 from "../sources/cg51.js";
 import type * as sources_index from "../sources/index.js";
 import type * as sources_rou from "../sources/rou.js";
@@ -24,6 +25,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   http: typeof http;
   proxy: typeof proxy;
+  "sources/91porn": typeof sources_91porn;
   "sources/cg51": typeof sources_cg51;
   "sources/index": typeof sources_index;
   "sources/rou": typeof sources_rou;
