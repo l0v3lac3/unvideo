@@ -39,14 +39,18 @@ function rememberArticle(key: string, article: Article) {
  * source order). Station promo posts (promo) render their text but no player.
  *
  * The video source for a `video` block:
+ *  - `video.pageUrl` → resolve through that source's video endpoint
  *  - `video.type === 'hls'` → hls.js against the m3u8 directly
  *  - otherwise → progressive `video.src`
  */
-function videoSource(v: VideoBlock | null | undefined): StreamSource | null {
+function videoSource(
+  v: VideoBlock | null | undefined,
+  src: string,
+): StreamSource | null {
   if (!v) return null;
-  // `pageUrl` videos must go through the source's video endpoint (rou.video
-  // unwraps the PNG container and signs the playlist server-side).
-  if (v.pageUrl) return { kind: 'rou', pageUrl: v.pageUrl };
+  // `pageUrl` videos must go through that source's video endpoint
+  // (server-side decode + signed playlist).
+  if (v.pageUrl) return { kind: 'page', src, pageUrl: v.pageUrl };
   return {
     kind: 'url',
     url: v.url,
@@ -105,7 +109,7 @@ function BodyBlockView({
     case 'quote':
       return <blockquote className="article-quote">{block.text}</blockquote>;
     case 'video': {
-      const source = videoSource(block.video);
+      const source = videoSource(block.video, src);
       if (!source) return null;
       return (
         <Player
@@ -242,10 +246,10 @@ export function Article({
               {article.description ? (
                 <p className="article-desc">{article.description}</p>
               ) : null}
-              {videoSource(article.video) ? (
+              {videoSource(article.video, src) ? (
                 <Player
                   key={`${src}${path}`}
-                  source={videoSource(article.video)!}
+                  source={videoSource(article.video, src)!}
                 />
               ) : (
                 <p className="status">该文章没有可解析的视频。</p>

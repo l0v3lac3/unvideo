@@ -63,6 +63,15 @@ export const SOURCES: FrontendSource[] = [
     feed: (path, page, node) => getFeed('rou', path, page, node),
     article: (path, node) => getArticle('rou', path, node),
   },
+  {
+    id: 't66y',
+    label: '草榴社區',
+    desc: 't66y 在線成人影院：普通主題列表（视频 + 标题），HLS 代理播放',
+    kind: 'feed',
+    siteInfo: () => getSiteInfo('t66y'),
+    feed: (path, page, node) => getFeed('t66y', path, page, node),
+    article: (path, node) => getArticle('t66y', path, node),
+  },
 ];
 
 export function sourceById(

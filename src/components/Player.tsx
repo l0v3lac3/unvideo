@@ -3,12 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import { resolveStream, type StreamInfo } from '../lib/api';
 
 /**
- * What the player should show. Either a rou.video page (resolved through the
- * Convex proxy) or a direct stream URL (the cg51 nodes serve CORS-open HLS /
- * MP4 that the browser can play without a proxy).
+ * What the player should show. Either an upstream page that must be
+ * resolved through that source's video endpoint (Convex proxy), or a
+ * direct stream URL (the cg51 nodes serve CORS-open HLS / MP4 that the
+ * browser can play without a proxy).
  */
 export type StreamSource =
-  | { kind: 'rou'; pageUrl: string }
+  | { kind: 'page'; src: string; pageUrl: string }
   | { kind: 'url'; url: string; type: 'hls' | 'mp4' };
 
 type Status = {
@@ -24,8 +25,8 @@ const IDLE_STATUS: Status = {
 /**
  * Unified video player.
  *
- * - For `kind: 'rou'` it calls the Convex `/api/resolve` proxy (which unwraps
- *   the PNG container and rewrites the HLS playlist) and feeds hls.js.
+ * - For `kind: 'page'` it calls the source's `/api/video` proxy (which
+ *   unwraps/decodes what's needed and signs the playlist) and feeds hls.js.
  * - For `kind: 'url'` with `type: 'hls'` it points hls.js straight at the
  *   upstream m3u8 (the node and its CDN both send `Access-Control-Allow-Origin:
  *   *`, so no proxy is needed).
@@ -73,7 +74,7 @@ export function Player({ source }: { source: StreamSource | null }) {
         if (cancelled) return;
         const { default: Hls } = HlsLib;
         if (Hls.isSupported()) {
-          // Tolerant of flaky networks (rou's rotating CDNs, mobile data):
+          // Tolerant of flaky networks (rotating upstream CDNs, mobile data):
           // retry each fragment far more times before declaring failure.
           const instance = new Hls({
             enableWorker: true,
@@ -158,11 +159,11 @@ export function Player({ source }: { source: StreamSource | null }) {
     };
 
     const run = async () => {
-      if (source.kind === 'rou') {
+      if (source.kind === 'page') {
         setStatus({ kind: 'busy', message: '正在解密视频地址…' });
         let info: StreamInfo;
         try {
-          info = await resolveStream(source.pageUrl);
+          info = await resolveStream(source.pageUrl, source.src);
         } catch (error) {
           if (!cancelled) {
             setStatus({

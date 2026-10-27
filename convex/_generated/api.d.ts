@@ -14,6 +14,7 @@ import type * as sources_91porn from "../sources/91porn.js";
 import type * as sources_cg51 from "../sources/cg51.js";
 import type * as sources_index from "../sources/index.js";
 import type * as sources_rou from "../sources/rou.js";
+import type * as sources_t66y from "../sources/t66y.js";
 import type * as sources_types from "../sources/types.js";
 
 import type {
@@ -29,6 +30,7 @@ declare const fullApi: ApiFromModules<{
   "sources/cg51": typeof sources_cg51;
   "sources/index": typeof sources_index;
   "sources/rou": typeof sources_rou;
+  "sources/t66y": typeof sources_t66y;
   "sources/types": typeof sources_types;
 }>;
 

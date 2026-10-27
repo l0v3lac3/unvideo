@@ -174,7 +174,7 @@ export default function App() {
 
   const playSource: StreamSource | null =
     route.kind === 'play' && route.url
-      ? { kind: 'rou', pageUrl: route.url }
+      ? { kind: 'page', src: route.src, pageUrl: route.url }
       : null;
 
   const backFallback = (): Route =>
