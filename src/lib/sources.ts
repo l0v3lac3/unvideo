@@ -72,6 +72,15 @@ export const SOURCES: FrontendSource[] = [
     feed: (path, page, node) => getFeed('t66y', path, page, node),
     article: (path, node) => getArticle('t66y', path, node),
   },
+  {
+    id: 'kanav',
+    label: 'KanAV',
+    desc: 'KanAV 视频库：分类/搜索浏览，HLS 代理播放（服务端解码 + 代理）',
+    kind: 'feed',
+    siteInfo: () => getSiteInfo('kanav'),
+    feed: (path, page, node) => getFeed('kanav', path, page, node),
+    article: (path, node) => getArticle('kanav', path, node),
+  },
 ];
 
 export function sourceById(

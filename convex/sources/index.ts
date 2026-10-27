@@ -4,6 +4,7 @@
  */
 
 import { HttpError } from "../proxy";
+import { kanavSource } from "./kanav";
 import { nineOneSource } from "./91porn";
 import { cg51Source, legacyNodeInfo } from "./cg51";
 import { rouSource } from "./rou";
@@ -15,6 +16,7 @@ export const SOURCES: Source[] = [
   cg51Source,
   nineOneSource,
   t66ySource,
+  kanavSource,
 ];
 
 const byId = new Map<string, Source>(SOURCES.map((s) => [s.id, s]));
