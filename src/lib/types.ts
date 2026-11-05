@@ -42,8 +42,6 @@ export type ArticleBlock =
   | { type: 'quote'; text: string }
   | { type: 'img'; url: string }
   | { type: 'video'; video: VideoBlock }
-  /** Embed an upstream page in a full-width iframe (browser-only fetch). */
-  | { type: 'iframe'; url: string }
   | { type: 'rec'; rec: Recommendation };
 
 export type FeedItem = {
@@ -65,12 +63,6 @@ export type FeedPage = {
   page: number;
   totalPages: number;
   items: FeedItem[];
-  /**
-   * When set, render this upstream list URL in a full-width iframe instead
-   * of `items` (the source's server serves poisoned lists to the backend
-   * but clean pages to real browser document navigations).
-   */
-  embedUrl?: string;
 };
 
 export type Article = {

@@ -95,23 +95,6 @@ function FeedCard({
 }
 
 /**
- * Upstream list embed: the source's server serves poisoned lists to the
- * backend but clean pages to real browser document navigations, so the
- * list itself is shown in a full-width iframe (their own pagination and
- * cards work inside).
- */
-function FeedEmbed({ url }: { url: string }) {
-  return (
-    <div className="embed-view">
-      <iframe src={url} title="源站列表" allow="fullscreen" allowFullScreen />
-      <a className="embed-open" href={url} target="_blank" rel="noreferrer">
-        在新标签页打开
-      </a>
-    </div>
-  );
-}
-
-/**
  * Prev/next, the current page indicator, a page input and an explicit jump
  * button. Rendered both above and below the grid so deep paging (thousands of
  * pages) does not require scrolling to the bottom and back.
@@ -227,9 +210,6 @@ export function Feed({
 
   const totalPages = data?.totalPages ?? 0;
 
-  // Upstream list embed (poisoned-list fallback) — replaces the grid.
-  const embed = data?.embedUrl;
-
   // Search results list (path = /search/<query>/): show a heading with the
   // decoded query and an explicit no-results state (upstream pages with no
   // matches simply render 0 cards).
@@ -248,50 +228,44 @@ export function Feed({
       ) : null}
       {error ? <p className="hint">{error}</p> : null}
 
-      {embed ? (
-        <FeedEmbed url={embed} />
-      ) : (
-        <>
-          {data && data.items.length === 0 ? (
-            <p className="status">
-              {isSearch
-                ? `没有搜到「${searchQuery}」的相关内容，换个关键词试试`
-                : '没有内容'}
-            </p>
-          ) : null}
-          {data && totalPages > 1 ? (
-            <PageControls
-              className="pager-top"
-              page={page}
-              totalPages={totalPages}
-              onPageChange={goToPage}
-            />
-          ) : null}
+      {data && data.items.length === 0 ? (
+        <p className="status">
+          {isSearch
+            ? `没有搜到「${searchQuery}」的相关内容，换个关键词试试`
+            : '没有内容'}
+        </p>
+      ) : null}
+      {data && totalPages > 1 ? (
+        <PageControls
+          className="pager-top"
+          page={page}
+          totalPages={totalPages}
+          onPageChange={goToPage}
+        />
+      ) : null}
 
-          <div className="feed-grid">
-            {loading && !data
-              ? Array.from({ length: 8 }).map((_, i) => (
-                  <div className="feed-card feed-skeleton" key={i} />
-                ))
-              : data?.items.map((item) => (
-                  <FeedCard
-                    key={item.id}
-                    item={item}
-                    onOpen={onOpen}
-                    onOpenPath={onOpenPath}
-                  />
-                ))}
-          </div>
+      <div className="feed-grid">
+        {loading && !data
+          ? Array.from({ length: 8 }).map((_, i) => (
+              <div className="feed-card feed-skeleton" key={i} />
+            ))
+          : data?.items.map((item) => (
+              <FeedCard
+                key={item.id}
+                item={item}
+                onOpen={onOpen}
+                onOpenPath={onOpenPath}
+              />
+            ))}
+      </div>
 
-          {data && totalPages > 1 ? (
-            <PageControls
-              page={page}
-              totalPages={totalPages}
-              onPageChange={goToPage}
-            />
-          ) : null}
-        </>
-      )}
+      {data && totalPages > 1 ? (
+        <PageControls
+          page={page}
+          totalPages={totalPages}
+          onPageChange={goToPage}
+        />
+      ) : null}
     </section>
   );
 }
