@@ -58,6 +58,27 @@ function videoSource(
   };
 }
 
+/**
+ * Full-width embed of an upstream page. Used by sources whose server
+ * serves clean pages only to real browser document navigations — the
+ * frame's own play flow does the rest (no CORS, no backend proxy).
+ */
+function EmbedView({ url }: { url: string }) {
+  return (
+    <div className="embed-view">
+      <iframe
+        src={url}
+        title="源站页面"
+        allow="autoplay; fullscreen; picture-in-picture"
+        allowFullScreen
+      />
+      <a className="embed-open" href={url} target="_blank" rel="noreferrer">
+        在新标签页打开
+      </a>
+    </div>
+  );
+}
+
 function RecCard({
   rec,
   onOpen,
@@ -118,6 +139,8 @@ function BodyBlockView({
         />
       );
     }
+    case 'iframe':
+      return <EmbedView url={block.url} />;
     case 'rec':
       return <RecCard rec={block.rec} onOpen={onOpen} />;
     case 'p':
@@ -162,9 +185,11 @@ export function Article({
 
   // Keep the tab title in sync (useful when several articles are in history)
   // and let the router apply a remembered scroll offset once content exists.
+  // A source may return an empty title (upstream withheld it) — fall back
+  // to a neutral label instead of an empty heading.
   useEffect(() => {
     if (!article) return;
-    document.title = `${article.title} · unvideo`;
+    document.title = `${article.title || '视频'} · unvideo`;
     restoreScroll();
     return () => {
       document.title = BASE_TITLE;
@@ -183,7 +208,7 @@ export function Article({
       {article ? (
         <>
           <header className="article-header">
-            <h1 className="article-title">{article.title}</h1>
+            <h1 className="article-title">{article.title || '视频'}</h1>
             {article.promo ? (
               <span className="promo-badge">站点活动 / 广告</span>
             ) : null}

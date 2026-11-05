@@ -61,6 +61,33 @@ const FETCH_TIMEOUT_MS = 20_000;
 /** 24 cards per list page (verified: "视频 1 - 24 的 N"). */
 const PAGE_SIZE = 24;
 
+/**
+ * Anti-piracy flagging (observed 2026-11-05): the server serves POISONED
+ * pages to non-browser clients (our backend, curl, Node, even Chrome-TLS
+ * impersonation) while real browser document navigations get clean pages.
+ * On a poisoned video page:
+ *  - the title becomes a zero-width-laden banner "请…到91P945.com 观看"
+ *    (the old domain is migrating; 91P945.com is a parked redirect stub)
+ *  - the author becomes "非法盗用91porn资源" and 添加时间 becomes "now"
+ *  - the signed MP4 URL points at a *different* (rotating) video file
+ *  - the description and the recommendation cards stay real, and the
+ *    thumbnail (== the /thumb/<VID>.jpg of the right video) stays real.
+ * The MP4 CDN likewise refuses non-browser clients outright.
+ *
+ * Strategy: detect the banner and fall back to browser-only paths —
+ * articles embed the upstream page in an iframe (document navigation
+ * passes the check and the page's own play flow works), feeds embed the
+ * upstream list page. The MP4 is never streamed through our backend.
+ */
+const ZW_RE = /[\u200b-\u200f\u2028\u2029\u2060-\u206f\ufeff]/g;
+/** Banner title after zero-width stripping: "请…到<domain> 观看". */
+const FLAG_TITLE_RE = /到\s*\S+\.com\s*观看/;
+
+/** True when the server flagged this page (title is the migration banner). */
+export function isFlaggedPage(title: string): boolean {
+  return FLAG_TITLE_RE.test(title.replace(ZW_RE, ""));
+}
+
 /** The site's language is session-based; pinning zh-CN gives stable labels. */
 const FETCH_HEADERS: Record<string, string> = {
   "User-Agent": BROWSER_UA,
@@ -357,6 +384,8 @@ export type RawArticle = {
   comments: string;
   video: RawVideo | null;
   recommendations: RawCard[];
+  /** The server served the anti-piracy poisoned page for this fetch. */
+  flagged: boolean;
 };
 
 /**
@@ -396,11 +425,11 @@ export function parseArticlePage(
     description = stripTags(inner);
   }
 
-  const author =
+  let author =
     html.match(/(?:作者|From):\s*<\/span>[\s\S]{0,400}?<span class="title">([^<]+)/)?.[1] ??
     html.match(/(?:作者|From):\s*<\/span>\s*([^<]+?)\s*<br/)?.[1] ??
     "";
-  const published =
+  let published =
     html.match(
       /(?:添加时间|Added):\s*<\/span>\s*<span class="title-yakov">(\d{4}-\d{2}-\d{2})<\/span>/,
     )?.[1] ?? "";
@@ -430,6 +459,17 @@ export function parseArticlePage(
     recommendations.push(c);
   }
 
+  // Anti-piracy flagging: the banner title (zero-width-laden) is not the
+  // video's title. On flagged pages the author and 添加时间 are fake too
+  // ("非法盗用91porn资源" / "just added"), so clear all three. The
+  // description and the recommendation cards stay genuine (verified).
+  const flagged = isFlaggedPage(title);
+  if (flagged) {
+    title = "";
+    author = "";
+    published = "";
+  }
+
   return {
     title,
     description,
@@ -441,6 +481,7 @@ export function parseArticlePage(
     comments,
     video,
     recommendations,
+    flagged,
   };
 }
 
@@ -469,9 +510,15 @@ function stripTags(html: string): string {
  * Source adapter — normalized models for the dispatcher + frontend.
  * ------------------------------------------------------------------ */
 
-function toArticle(path: string, a: RawArticle): Article {
+function toArticle(path: string, a: RawArticle, embedUrl: string): Article {
   const blocks: ArticleBlock[] = [];
-  if (a.video) {
+  if (a.flagged) {
+    // Flagged: the page's MP4 is a rotating *different* video, and the CDN
+    // refuses non-browser clients. Embed the upstream page instead — a real
+    // browser document navigation gets the clean page, and the page's own
+    // play flow works inside the frame.
+    blocks.push({ type: "iframe", url: embedUrl });
+  } else if (a.video) {
     blocks.push({
       type: "video",
       video: {
@@ -483,6 +530,19 @@ function toArticle(path: string, a: RawArticle): Article {
     });
   }
   if (a.description) blocks.push({ type: "p", text: a.description });
+
+  // The site's related/hot cards (sidebar) are part of the page layout —
+  // push them as rec blocks so the generic renderer shows them.
+  for (const r of a.recommendations) {
+    blocks.push({
+      type: "rec",
+      rec: {
+        path: `/view/${r.viewkey}/`,
+        title: r.title,
+        cover: r.cover || undefined,
+      },
+    });
+  }
 
   const recommendations: Recommendation[] = a.recommendations.map((r) => ({
     path: `/view/${r.viewkey}/`,
@@ -533,15 +593,25 @@ export const nineOneSource: Source = {
     const html = await fetchText(url, node + "/");
     const raw = parseFeedPage(html);
     const now = Date.now();
+
+    // Flagged list pages: every title is the migration banner and the
+    // relative times / stats are fake. The thumbnails and viewkeys are
+    // still genuine, but a native grid would be a wall of identical
+    // placeholder titles — embed the upstream list instead (real browser
+    // document navigation gets the clean page).
+    const flagged = raw.items.some((i) => isFlaggedPage(i.title));
+
     const items: FeedItem[] = raw.items.map((i) => {
-      const epoch = relativeToEpoch(i.added, now);
+      const epoch = flagged ? null : relativeToEpoch(i.added, now);
       const meta: string[] = [];
-      if (i.views) meta.push(`热度 ${i.views}`);
-      if (i.favorites) meta.push(`收藏 ${i.favorites}`);
+      if (!flagged) {
+        if (i.views) meta.push(`热度 ${i.views}`);
+        if (i.favorites) meta.push(`收藏 ${i.favorites}`);
+      }
       return {
         id: i.viewkey,
         path: `/view/${i.viewkey}/`,
-        title: i.title,
+        title: flagged ? "" : i.title,
         cover: i.cover || undefined,
         published: epoch ? new Date(epoch).toISOString() : undefined,
         meta: meta.length ? meta : undefined,
@@ -553,6 +623,7 @@ export const nineOneSource: Source = {
       page,
       totalPages: raw.totalPages,
       items,
+      embedUrl: flagged ? url : undefined,
     };
   },
 
@@ -560,13 +631,12 @@ export const nineOneSource: Source = {
     const node = nodeForRequest(nodeOverride);
     const vk = path.match(/^\/view\/([0-9a-f]{6,40})\/?$/i);
     if (!vk) throw new HttpError(400, "article path must look like /view/<viewkey>/");
-    const html = await fetchText(
-      `${node}/view_video.php?viewkey=${vk[1]}`,
-      node + "/",
-    );
+    const pageUrl = `${node}/view_video.php?viewkey=${vk[1]}`;
+    const html = await fetchText(pageUrl, node + "/");
     const a = parseArticlePage(html, vk[1]);
-    if (!a.video) throw new HttpError(502, "video source not found on page");
-    return toArticle(`/view/${vk[1]}/`, a);
+    if (!a.video && !a.flagged)
+      throw new HttpError(502, "video source not found on page");
+    return toArticle(`/view/${vk[1]}/`, a, pageUrl);
   },
 
   matchArticle: (value) => matchArticleValue(value),

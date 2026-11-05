@@ -48,7 +48,7 @@ export const SOURCES: FrontendSource[] = [
   {
     id: '91porn',
     label: '91porn',
-    desc: '91porn：分类浏览、MP4 直连播放（CDN 直出，无需代理）',
+    desc: '91porn：分类浏览、源站内嵌播放（CDN 直出，无需代理）',
     kind: 'feed',
     siteInfo: () => getSiteInfo('91porn'),
     feed: (path, page, node) => getFeed('91porn', path, page, node),

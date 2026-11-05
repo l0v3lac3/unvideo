@@ -53,6 +53,8 @@ export type ArticleBlock =
   | { type: "quote"; text: string }
   | { type: "img"; url: string }
   | { type: "video"; video: VideoBlock }
+  /** Embed an upstream page in a full-width iframe (browser-only fetch). */
+  | { type: "iframe"; url: string }
   | { type: "rec"; rec: Recommendation };
 
 /** Normalized article. All URLs are absolute (signed where needed). */
@@ -100,6 +102,13 @@ export interface FeedPage {
   page: number;
   totalPages: number;
   items: FeedItem[];
+  /**
+   * When set, the frontend embeds this upstream list URL in a full-width
+   * iframe instead of rendering `items` (used when the source's server
+   * serves poisoned list pages to the backend, but clean pages to real
+   * browser document navigations).
+   */
+  embedUrl?: string;
 }
 
 /** A clickable tag: the display name plus its list path within the source. */

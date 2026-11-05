@@ -579,6 +579,42 @@ body::after {
   display: block;
 }
 
+/* Upstream page embed (source-agnostic): the frame hosts the real upstream
+   page — used when the source's server serves clean pages only to real
+   browser document navigations (its anti-scrape check). */
+.embed-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.embed-view iframe {
+  width: 100%;
+  height: min(85vh, 960px);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  background: #fff;
+  box-shadow:
+    0 0 24px rgba(0, 240, 255, 0.12),
+    inset 0 0 60px rgba(0, 240, 255, 0.05);
+}
+
+.embed-open {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--cyan);
+  text-decoration: none;
+}
+
+.embed-open::before {
+  content: '▸ ';
+}
+
+.embed-open:hover {
+  text-decoration: underline;
+}
+
 .status {
   margin: 0;
   font-family: var(--font-mono);
@@ -1454,6 +1490,11 @@ code {
   .feed-grid {
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 10px;
+  }
+
+  /* Upstream page embeds: shorter frame on phones. */
+  .embed-view iframe {
+    height: 70vh;
   }
 
   /* A notch smaller page title. */
