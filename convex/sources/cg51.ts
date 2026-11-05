@@ -281,6 +281,25 @@ export function buildFeedPath(path: string, page: number): string {
 const ARTICLE_BLOCK = /<article itemscope itemtype="http:\/\/schema.org\/BlogPosting"[\s\S]*?<\/article>/g;
 const ARCHIVE_PATH = /itemprop="url mainEntityOfPage" content="(\/archives\/\d+\/)"/;
 
+/**
+ * The card's background URL. Three generations of markup coexist across
+ * nodes/skins:
+ *  - `loadBannerDirect('url')` — old card banner script call;
+ *  - `<w>-bg-loader-url="url"` — declarative loader attribute whose
+ *    obfuscated prefix ROTATES per generation (`z-bg-loader-url` on the
+ *    51qingliang skin, `x-bg-loader-url` on the 51cg1 skin — where only the
+ *    first two cards of each page use it). Match any `\w+-bg-loader-url`;
+ *  - `data-xkrkllgl="url"` — legacy `<img>` attribute.
+ */
+function matchCardCover(scope: string): string {
+  return (
+    scope.match(/loadBannerDirect\('([^']+)'/)?.[1] ??
+    scope.match(/\w+-bg-loader-url="([^"]+)"/)?.[1] ??
+    scope.match(/data-xkrkllgl="([^"]+)"/)?.[1] ??
+    ""
+  );
+}
+
 /** Parse one feed/list page (home or category) into items + total pages. */
 export function parseFeed(html: string, node: string, path: string, page: number): RawFeedResult {
   const base = node.replace(/\/+$/, "");
@@ -289,12 +308,7 @@ export function parseFeed(html: string, node: string, path: string, page: number
     const url = block.match(ARCHIVE_PATH);
     if (!url) continue;
     const title = block.match(/itemprop="headline">\s*([^<]+?)\s*</);
-    // Three generations of card banner markup; the 2026-10 skin moved to the
-    // declarative `z-bg-loader-url` background attribute (image.20260416.js).
-    const cover =
-      block.match(/loadBannerDirect\('([^']+)'/) ??
-      block.match(/z-bg-loader-url="([^"]+)"/) ??
-      block.match(/data-xkrkllgl="([^"]+)"/);
+    const coverUrl = matchCardCover(block);
     const pub = block.match(/itemprop="datePublished" content="([^"]+)"/);
     // Station promo/ad cards (Meme coin, 招募, 抽奖, 福利) omit the whole
     // post-card-info meta row (no author / date / category span). Legit
@@ -315,7 +329,6 @@ export function parseFeed(html: string, node: string, path: string, page: number
     );
     const views = block.match(/<span>([\d.]+)万?浏览量<\/span>/);
     const id = url[1].match(/\d+/)?.[0] ?? "";
-    const coverUrl = cover?.[1] ?? "";
     items.push({
       id,
       url: `${base}${url[1]}`,
@@ -363,18 +376,13 @@ export function parseSearch(html: string, node: string, path: string, page: numb
     const pub = block.match(/itemprop="datePublished" content="([^"]+)"/);
     if (!pub) continue;
     const title = block.match(/itemprop="headline"[^>]*>([\s\S]*?)<\/h2>/);
-    // Three generations of card banner markup (see parseFeed).
-    const cover =
-      block.match(/loadBannerDirect\('([^']+)'/) ??
-      block.match(/z-bg-loader-url="([^"]+)"/) ??
-      block.match(/data-xkrkllgl="([^"]+)"/);
+    const coverUrl = matchCardCover(block);
     const author = block.match(/itemprop="author"[^>]*>\s*([^<]+?)\s*•/);
     const cats = block.match(
       /itemprop="datePublished" content="[^"]*"[^>]*>[^<]*<\/span>\s*<span>([^<]*?)<\/span>/,
     );
     const views = block.match(/<span>([\d.]+)万?浏览量<\/span>/);
     const id = url[1].match(/\d+/)?.[0] ?? "";
-    const coverUrl = cover?.[1] ?? "";
     items.push({
       id,
       url: `${base}${url[1]}`,
@@ -588,14 +596,19 @@ function extractVideoFromDplayer(attrs: string): Cg51Video | null {
 }
 
 /**
- * The `<img>`'s declarative loader URL — two generations of attribute,
- * both pointing at the same AES-encrypted CDN (see transformImage):
- *  - `z-image-loader-url` — unified loader (image.20260416.js, 2026-10)
- *  - `data-xkrkllgl` — older attribute (site JS still ships its decryptor)
+ * The `<img>`'s declarative loader URL. The loader attribute's obfuscated
+ * prefix ROTATES per generation (`z-image-loader-url`, `x-image-loader-url`,
+ * ...), so match any `\w+-image-loader-url`. Content images carry no `src`
+ * (the site's JS injects the decrypted image); ad banners do — a local
+ * placeholder `src` plus a rotating `x-image-loader-url` — so the declarative
+ * match requires a src-less tag and never returns an ad creative.
+ * `data-xkrkllgl` (older generation) is matched as before.
  */
 function matchImgLoaderUrl(scope: string): string {
-  const m = scope.match(/z-image-loader-url="([^"]+)"|data-xkrkllgl="([^"]+)"/);
-  return m ? m[1] || m[2] || "" : "";
+  const m = scope.match(/<img(?![^>]*\s+src=)[^>]*\w+-image-loader-url="(https:[^"]+)"/);
+  if (m) return m[1];
+  const d = scope.match(/data-xkrkllgl="(https:[^"]+)"/);
+  return d ? d[1] : "";
 }
 
 /**
