@@ -1393,6 +1393,88 @@ code {
 }
 
 /* ------------------------------------------------------------------ *
+ * Mobile (≤640px): compact header — the site switch and category nav
+ * become single scrollable rows instead of stacked/wrapped buttons,
+ * the feed goes 2-up where it fits, inputs use 16px (no iOS
+ * focus-zoom), small chips get bigger touch targets.
+ * ------------------------------------------------------------------ */
+@media (max-width: 640px) {
+  .app {
+    padding: 14px 12px 32px;
+    gap: 12px;
+  }
+
+  /* Site switch: one scrollable row instead of wrapped full-width buttons. */
+  .sites {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .sites::-webkit-scrollbar {
+    display: none;
+  }
+  .site {
+    flex: none;
+    padding: 9px 14px;
+    white-space: nowrap;
+  }
+
+  /* Category nav: one scrollable row per tier instead of a tall wrap. */
+  .cat-nav {
+    gap: 8px;
+  }
+  .cat-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .cat-row::-webkit-scrollbar {
+    display: none;
+  }
+  .cat {
+    flex: none;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+  .cat-caret,
+  .cat-parent {
+    flex: none;
+  }
+  .cat-group {
+    flex-wrap: nowrap;
+  }
+  .cat-row-sub {
+    padding-left: 0;
+  }
+
+  /* 2-column feed grid where two ~160px cards fit (1 column below that,
+     3 columns on wider phones/tablets). */
+  .feed-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+
+  /* A notch smaller page title. */
+  .article-title {
+    font-size: 1.3rem;
+  }
+
+  /* 16px inputs: iOS won't auto-zoom the page when focusing them. */
+  .search-bar input,
+  .url-bar input,
+  .pager input {
+    font-size: 16px;
+  }
+
+  /* Bigger touch targets for the small chips. */
+  .feed-cat {
+    padding: 3px 8px;
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Motion preferences: flatten all animation for reduced-motion users.
  * ------------------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {
