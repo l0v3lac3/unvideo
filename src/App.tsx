@@ -3,6 +3,8 @@ import type { FormEvent } from 'react';
 import { Player, type StreamSource } from './components/Player';
 import { Feed } from './components/Feed';
 import { Article } from './components/Article';
+import { PasswordGate } from './components/PasswordGate';
+import { isUnlocked } from './lib/password';
 import { SOURCES, sourceById, sourceHomeRoute } from './lib/sources';
 import type {
   FeedItem,
@@ -102,6 +104,14 @@ export default function App() {
   // Restores the previous scroll offset on back/forward; scrolls to top on a
   // fresh article/page so jumps don't land mid-page.
   useScrollRestoration(routeKey(route));
+
+  // Site access password: until unlocked, every route renders the gate
+  // instead of the app (the hash keeps the target route, so entering the
+  // password lands on exactly where the link pointed).
+  const [unlocked, setUnlocked] = useState(isUnlocked);
+  if (!unlocked) {
+    return <PasswordGate onUnlock={() => setUnlocked(true)} />;
+  }
 
   const activeSrc = route.kind === 'home' ? null : route.src;
 
