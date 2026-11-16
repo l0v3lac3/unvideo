@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { Player, type StreamSource } from './components/Player';
 import { Feed } from './components/Feed';
 import { Article } from './components/Article';
+import { Home } from './components/Home';
 import { PasswordGate } from './components/PasswordGate';
 import { isUnlocked } from './lib/password';
 import { SOURCES, sourceById, sourceHomeRoute } from './lib/sources';
@@ -254,6 +255,8 @@ export default function App() {
           />
         ) : null}
       </div>
+
+      {route.kind === 'home' ? <Home /> : null}
 
       {route.kind === 'play' ? (
         <section>
