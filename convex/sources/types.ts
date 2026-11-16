@@ -86,12 +86,6 @@ export interface FeedItem {
   path: string;
   title: string;
   cover?: string;
-  /**
-   * Page URL to resolve through the source's video endpoint (`/api/video`)
-   * — set for items whose source publishes no cover image, so the client
-   * can generate one from the stream's first frame.
-   */
-  pageUrl?: string;
   published?: string;
   /** Up to a few clickable chips rendered under the title. */
   tags?: TagRef[];
