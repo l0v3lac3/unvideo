@@ -1033,6 +1033,27 @@ code {
   font-size: 0.8rem;
 }
 
+.feed-cover-gen {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  animation: cover-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes cover-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .feed-body {
   display: flex;
   flex-direction: column;

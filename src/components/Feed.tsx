@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getFeed } from '../lib/api';
 import { searchQueryOf } from '../lib/router';
+import { getCoverForItem } from '../lib/thumbnail';
 import type { FeedItem, FeedPage } from '../lib/types';
 
 /**
@@ -31,10 +32,12 @@ function remember(key: string, result: FeedPage) {
 
 /** One row in the feed. */
 function FeedCard({
+  src,
   item,
   onOpen,
   onOpenPath,
 }: {
+  src: string;
   item: FeedItem;
   onOpen: (item: FeedItem) => void;
   onOpenPath: (path: string) => void;
@@ -42,6 +45,42 @@ function FeedCard({
   const date = item.published
     ? new Date(item.published).toLocaleDateString('zh-CN')
     : '';
+  // Items without a source-provided cover but carrying a pageUrl (t66y
+  // publishes no images anywhere) get one generated from the stream's
+  // first frame — lazily, only when the card is about to enter the
+  // viewport.
+  const needsGenerated = !item.cover && item.pageUrl !== undefined;
+  const [generatedCover, setGeneratedCover] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const coverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!needsGenerated) return;
+    const el = coverRef.current;
+    if (!el || !('IntersectionObserver' in window)) return;
+    let cancelled = false;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        io.disconnect();
+        setGenerating(true);
+        void getCoverForItem(src, item).then((url) => {
+          if (cancelled) return;
+          setGenerating(false);
+          if (url) setGeneratedCover(url);
+        });
+      },
+      { rootMargin: '300px 0px' },
+    );
+    io.observe(el);
+    return () => {
+      cancelled = true;
+      io.disconnect();
+    };
+  }, [needsGenerated, src, item]);
+
+  const coverUrl = item.cover ?? generatedCover;
+
   // A div (not a <button>) so the tag chips inside can be real buttons.
   return (
     <div
@@ -57,9 +96,11 @@ function FeedCard({
         }
       }}
     >
-      <div className="feed-cover">
-        {item.cover ? (
-          <img src={item.cover} alt="" loading="lazy" />
+      <div className="feed-cover" ref={coverRef}>
+        {coverUrl ? (
+          <img src={coverUrl} alt="" loading="lazy" />
+        ) : generating ? (
+          <div className="feed-cover-gen">生成封面…</div>
         ) : (
           <div className="feed-cover-empty">无封面</div>
         )}
@@ -252,6 +293,7 @@ export function Feed({
           : data?.items.map((item) => (
               <FeedCard
                 key={item.id}
+                src={src}
                 item={item}
                 onOpen={onOpen}
                 onOpenPath={onOpenPath}

@@ -503,10 +503,15 @@ export const t66ySource: Source = {
     const totalPages = parseTotalPages(html, page);
     const items: FeedItem[] = rows.map((r) => {
       const tagPath = CAT_PATH_BY_NAME[r.category];
+      // t66y publishes no images anywhere (list rows, thread pages and the
+      // player page are all image-free), so the feed carries each item's
+      // page URL: the client resolves it and draws the cover from the
+      // stream's first frame (see src/lib/thumbnail.ts).
       return {
         id: r.tid,
         path: `/t/${r.tid}/`,
         title: r.title,
+        pageUrl: `${T66Y_BASE}/read.php?tid=${r.tid}`,
         published: r.ts ? new Date(Number(r.ts) * 1000).toISOString() : undefined,
         tags: r.category && tagPath
           ? [{ name: r.category, path: tagPath }]

@@ -50,6 +50,8 @@ export type FeedItem = {
   path: string;
   title: string;
   cover?: string;
+  /** Page URL to resolve via /api/video — used to generate a cover from the stream. */
+  pageUrl?: string;
   published?: string;
   /** Clickable chips rendered under the title. */
   tags?: TagRef[];
