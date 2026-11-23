@@ -825,6 +825,9 @@ const IMG_HOSTS = new Set([
   // CDN rotation: the node's covers moved here (2026-10-26) — verified the
   // same key/IV decrypts these hosts' bytes, so they join the allowlist.
   "pic.sugfew.cn",
+  // Next rotation (2026-11-23): feed + article images all moved to this
+  // host; verified the same key/IV decrypts it (bytes → ffd8 JPEG).
+  "pic.mmgbaa.cn",
 ]);
 
 export function isCg51ImageHost(host: string): boolean {
