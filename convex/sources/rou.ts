@@ -192,25 +192,90 @@ type RawRouItem = {
 };
 
 /**
+ * Index of the `]` matching the `[` at `openIdx` (string-aware; braces
+ * and brackets both count). -1 when unbalanced. The videos array's
+ * terminator differs by page (list pages: `],pageNum:`; search pages:
+ * nothing recognizable), so bound it structurally.
+ */
+function matchBracket(s: string, openIdx: number): number {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = openIdx; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") depth++;
+    else if (c === "}" || c === "]") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Positions of top-level objects inside an array body (the text between
+ * its brackets): each `{` seen at zero nesting depth. Elements arrive
+ * inline as `$R[n]={...}` — the reference brackets net to zero — so the
+ * first `{` at depth 0 is exactly each item's opening brace.
+ */
+function topLevelObjectStarts(span: string): number[] {
+  const starts: number[] = [];
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < span.length; i++) {
+    const c = span[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") {
+      if (c === "{" && depth === 0) starts.push(i);
+      depth++;
+    } else if (c === "}" || c === "]") depth--;
+  }
+  return starts;
+}
+
+/**
  * Parse a list page's embedded item array. The array is written as
- * `videos:$R[n]=[$R[a]={id:"…",vid:…,…},$R[b]={…},…]` — top-level items are
- * `{id:"…",vid:…` (a `vid` key, possibly null), which distinguishes them from
- * the nested `sources` entries (`{id:"…",videoId:…`).
+ * `videos:$R[n]=[$R[a]={…},$R[b]={…},…]`; top-level items carry an `id`
+ * key (nested `sources` entries use `videoId`, and in any case sit inside
+ * each item's braces, so the depth-0 scan below never sees them).
  */
 function extractRouFeed(html: string): { items: RawRouItem[]; totalPage: number } {
   const totalPage = Number(html.match(/totalPage:(\d+)/)?.[1] ?? 0);
   const marker = html.indexOf("videos:$R[");
   if (marker < 0) return { items: [], totalPage };
-  const arrOpen = html.indexOf("[", marker);
-  const spanEnd = html.indexOf("],pageNum:", arrOpen);
-  const span = html.slice(arrOpen, spanEnd < 0 ? html.length : spanEnd);
+  // The array is defined inline right after the reference:
+  // `videos:$R[14]=[$R[15]={…},…]` — the array's `[` is the one in `=[`.
+  const eq = html.indexOf("=[", marker);
+  if (eq < 0) return { items: [], totalPage };
+  const arrOpen = eq + 1;
+  const arrClose = matchBracket(html, arrOpen);
+  const span = html.slice(
+    arrOpen + 1,
+    arrClose < 0 ? html.length : arrClose,
+  );
   const items: RawRouItem[] = [];
-  for (const m of span.matchAll(/\{id:"[^"]*",vid:/g)) {
-    const start = m.index ?? 0;
+  // Item field order differs by page — list pages start with `id` and
+  // carry `vid`; search pages are alphabetical and have no `vid`. Bound
+  // each item structurally and read fields position-independently.
+  for (const start of topLevelObjectStarts(span)) {
     const end = matchBrace(span, start);
     if (end < 0) continue;
     const raw = span.slice(start, end + 1);
-    const id = raw.match(/^\{id:"([^"]*)"/)?.[1] ?? "";
+    const id = raw.match(/\bid:"((?:[^"\\]|\\.)*)"/)?.[1] ?? "";
     if (!id) continue;
     const tagsM = raw.match(/tags:(?:\$R\[\d+\]=)?\[([^\]]*)\]/);
     const tags = tagsM
@@ -218,12 +283,12 @@ function extractRouFeed(html: string): { items: RawRouItem[]; totalPage: number 
       : [];
     items.push({
       id,
-      vid: raw.match(/,vid:"([^"]*)"/)?.[1] ?? "",
-      name: jsonStr(raw.match(/,name:"((?:[^"\\]|\\.)*)"/)?.[1] ?? ""),
+      vid: raw.match(/\bvid:"([^"]*)"/)?.[1] ?? "",
+      name: jsonStr(raw.match(/\bname:"((?:[^"\\]|\\.)*)"/)?.[1] ?? ""),
       tags,
       createdAt: raw.match(/createdAt:"([^"]*)"/)?.[1] ?? "",
       viewCount: Number(raw.match(/viewCount:(\d+)/)?.[1] ?? 0),
-      duration: Number(raw.match(/duration:([\d.]+)/)?.[1] ?? 0),
+      duration: Number(raw.match(/duration:([0-9.]+)/)?.[1] ?? 0),
       cover: raw.match(/coverImageUrl:"([^"]*)"/)?.[1] ?? "",
     });
   }
