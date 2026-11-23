@@ -249,10 +249,21 @@ export function extractCards(html: string): RawCard[] {
     const grid = before.match(/col-lg-(\d)"/g)?.pop()?.match(/\d/) ?? null;
     const img = block.match(/<img[^>]+src="([^"]+)"/);
     const dur = block.match(/<span class="duration">([^<]*)<\/span>/);
-    const title = block.match(/<span class="video-title[^>]*>([\s\S]*?)<\/span>/);
-    const added = block.match(
-      /(?:添加时间|Added):\s*<\/span>\s*([^<]+?)\s*(?:<br|<\/div)/,
-    );
+    // Title: the list page's current skin wraps it in `<bdi>` inside a div
+    // whose class is obfuscated and ROTATES PER REQUEST (`t51b3f2`,
+    // `tc946c4`, …) — the `<bdi>` tag is the stable part, so match it.
+    // The search page (and older skins) still use `<span class="video-title">`.
+    const title =
+      block.match(/<bdi>([\s\S]*?)<\/bdi>/) ??
+      block.match(/<span class="video-title[^>]*>([\s\S]*?)<\/span>/);
+    // Added: the list skin dropped the "添加时间:" label — the relative time
+    // now sits as `- 28 小时 前 <br` after the voting icon span following
+    // the card link. Anchor after `</a>` so title text can't false-match.
+    const added =
+      block.match(
+        /<\/a>[\s\S]{0,500}?-\s*([\d]+\s*(?:秒|分钟|小时|天|周|月|年|seconds?|minutes?|hours?|days?|weeks?|months?|years?|h|m|d)(?:\s*(?:前|ago))?)(?=\s*<br)/,
+      ) ??
+      block.match(/(?:添加时间|Added):\s*<\/span>\s*([^<]+?)\s*(?:<br|<\/div)/);
     const author =
       block.match(/(?:作者|From):\s*<\/span>\s*([^<]+?)\s*<br/) ??
       block.match(/(?:作者|From):\s*<\/span>[\s\S]{0,400}?<span class="title">([^<]+)/);
