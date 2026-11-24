@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Player, type StreamSource } from './Player';
+import { TitleSprites } from './TitleSprites';
 import { getArticle } from '../lib/api';
 import { restoreScroll } from '../lib/router';
 import type {
@@ -75,7 +76,12 @@ function RecCard({
         <img className="rec-cover" src={rec.cover} alt="" loading="lazy" />
       ) : null}
       <span className="rec-text">
-        <span className="rec-title">{rec.title}</span>
+        <span className="rec-title">
+          {rec.title}
+          {rec.titleSprites ? (
+            <TitleSprites sprites={rec.titleSprites} />
+          ) : null}
+        </span>
         {rec.desc ? <span className="rec-desc">{rec.desc}</span> : null}
       </span>
     </button>
@@ -185,7 +191,12 @@ export function Article({
       {article ? (
         <>
           <header className="article-header">
-            <h1 className="article-title">{article.title || '视频'}</h1>
+            <h1 className="article-title">
+              {article.title || (article.titleSprites?.length ? '' : '视频')}
+              {article.titleSprites ? (
+                <TitleSprites sprites={article.titleSprites} />
+              ) : null}
+            </h1>
             {article.promo ? (
               <span className="promo-badge">站点活动 / 广告</span>
             ) : null}

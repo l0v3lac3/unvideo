@@ -36,7 +36,7 @@ import { unzlibSync, zlibSync } from "fflate";
 import { getSource, legacyNodeInfo } from "./sources";
 import { isFeedSource, isVideoSource } from "./sources/types";
 import { unwrapPng } from "./sources/rou";
-import type { Article, FeedPage, Source } from "./sources/types";
+import type { Article, FeedPage, Source, TitleSprite } from "./sources/types";
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -74,6 +74,22 @@ async function signImgUrl(
   return imgPath(secret, origin, url, source.id);
 }
 
+/** Route every sprite URL in a title through the image proxy. */
+async function signSprites(
+  secret: string | undefined,
+  origin: string,
+  sprites: TitleSprite[] | undefined,
+  source: Source,
+): Promise<TitleSprite[] | undefined> {
+  if (!sprites || sprites.length === 0) return undefined;
+  return Promise.all(
+    sprites.map(async (s) => ({
+      ...s,
+      url: (await signImgUrl(secret, origin, s.url, source)) ?? s.url,
+    })),
+  );
+}
+
 /** Route every cover in a feed through the image proxy. */
 async function signFeed(
   feed: FeedPage,
@@ -83,7 +99,11 @@ async function signFeed(
   const secret = proxySecret();
   const items = [];
   for (const item of feed.items) {
-    items.push({ ...item, cover: await signImgUrl(secret, origin, item.cover, source) });
+    const [cover, titleSprites] = await Promise.all([
+      signImgUrl(secret, origin, item.cover, source),
+      signSprites(secret, origin, item.titleSprites, source),
+    ]);
+    items.push({ ...item, cover, titleSprites });
   }
   return { ...feed, items };
 }
@@ -100,15 +120,32 @@ async function signArticleImages(
   for (const b of article.blocks) {
     if (b.type === "img") blocks.push({ ...b, url: (await signOne(b.url)) ?? b.url });
     else if (b.type === "rec")
-      blocks.push({ ...b, rec: { ...b.rec, cover: await signOne(b.rec.cover) } });
+      blocks.push({
+        ...b,
+        rec: {
+          ...b.rec,
+          cover: await signOne(b.rec.cover),
+          titleSprites: await signSprites(
+            secret,
+            origin,
+            b.rec.titleSprites,
+            source,
+          ),
+        },
+      });
     else blocks.push(b);
   }
   const recommendations = [];
   for (const r of article.recommendations) {
-    recommendations.push({ ...r, cover: await signOne(r.cover) });
+    recommendations.push({
+      ...r,
+      cover: await signOne(r.cover),
+      titleSprites: await signSprites(secret, origin, r.titleSprites, source),
+    });
   }
   return {
     ...article,
+    titleSprites: await signSprites(secret, origin, article.titleSprites, source),
     cover: await signOne(article.cover),
     images: article.images
       ? (await Promise.all(article.images.map((u) => signOne(u)))).filter(

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getFeed } from '../lib/api';
 import { searchQueryOf } from '../lib/router';
 import type { FeedItem, FeedPage } from '../lib/types';
+import { TitleSprites } from './TitleSprites';
 
 /**
  * Feed pages are kept for the session so back/forward and site switches
@@ -66,7 +67,10 @@ function FeedCard({
       </div>
       <div className="feed-body">
         <h3 className="feed-title" title={item.title}>
-          {item.title || '视频'}
+          {item.title || (item.titleSprites?.length ? '' : '视频')}
+          {item.titleSprites ? (
+            <TitleSprites sprites={item.titleSprites} />
+          ) : null}
         </h3>
         <div className="feed-meta">
           {(item.tags ?? []).slice(0, 3).map((t) => (

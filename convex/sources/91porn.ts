@@ -61,6 +61,7 @@ import type {
   SiteCategory,
   SiteInfo,
   Source,
+  TitleSprite,
 } from "./types";
 
 export const N91_BASE = "https://91porn.com";
@@ -211,6 +212,8 @@ export function matchArticleValue(value: string): string | null {
 export type RawCard = {
   viewkey: string;
   title: string;
+  /** Image parts of the title (91porn new skin renders titles as masked sprites). */
+  titleSprites: TitleSprite[];
   cover: string;
   duration: string;
   /** Relative time as shown ("43 分钟 前" / "38 minutes"). */
@@ -226,11 +229,39 @@ export type RawCard = {
 const CARD_ANCHOR = /<a href="[^"]*viewkey=([0-9a-f]{6,40})[^"]*">/g;
 
 /**
+ * Parse a 91porn title block (the `<bdi>` contents on the new list skin, or
+ * the `<h4>` contents on the standard page): an optional inline `<style>`
+ * defining `.ti`, an optional visible text badge (e.g. "[原创]"), and zero or
+ * more masked sprite `<i class="ti">` elements — the actual title text, which
+ * the site renders as PNG masks over `currentColor` (no text in the HTML).
+ */
+function parseTitleBlock(inner: string, node: string): {
+  text: string;
+  sprites: TitleSprite[];
+} {
+  let s = inner.replace(/<style>[\s\S]*?<\/style>/g, " ");
+  const sprites: TitleSprite[] = [];
+  for (const m of s.matchAll(/<i class="ti"[^>]*style="([^"]*)">/g)) {
+    const style = m[1];
+    const w = style.match(/width:\s*([\d.]+em)/)?.[1];
+    const p =
+      style.match(/mask-image:url\(([^)]+)\)/)?.[1] ??
+      style.match(/-webkit-mask-image:url\(([^)]+)\)/)?.[1];
+    if (w && p) {
+      const url = p.startsWith("http") ? p : new URL(p, node).href;
+      sprites.push({ url, width: w });
+    }
+  }
+  const text = stripTags(s.replace(/<i class="ti"[^>]*>[\s\S]*?<\/i>/g, " "));
+  return { text, sprites };
+}
+
+/**
  * Extract every video card: `<a …viewkey=…>` + playvthumb + img + duration +
  * title + the info spans after the link. `grid` is the col-lg width of the
  * wrapper div containing the card (8 = hidden decoy grid, 3 = visible grid).
  */
-export function extractCards(html: string): RawCard[] {
+export function extractCards(html: string, node: string): RawCard[] {
   const starts: { viewkey: string; at: number }[] = [];
   for (const m of html.matchAll(CARD_ANCHOR)) {
     starts.push({ viewkey: m[1], at: m.index ?? 0 });
@@ -251,11 +282,15 @@ export function extractCards(html: string): RawCard[] {
     const dur = block.match(/<span class="duration">([^<]*)<\/span>/);
     // Title: the list page's current skin wraps it in `<bdi>` inside a div
     // whose class is obfuscated and ROTATES PER REQUEST (`t51b3f2`,
-    // `tc946c4`, …) — the `<bdi>` tag is the stable part, so match it.
-    // The search page (and older skins) still use `<span class="video-title">`.
-    const title =
-      block.match(/<bdi>([\s\S]*?)<\/bdi>/) ??
-      block.match(/<span class="video-title[^>]*>([\s\S]*?)<\/span>/);
+    // `tc946c4`, …) — the `<bdi>` tag is the stable part, so match it. The
+    // new skin renders the title as a masked PNG sprite (no text); the search
+    // page (and older skins) still use a plain `<span class="video-title">`.
+    const titleBlock =
+      block.match(/<bdi>([\s\S]*?)<\/bdi>/)?.[1] ??
+      block.match(/<span class="video-title[^>]*>([\s\S]*?)<\/span>/)?.[1];
+    const { text, sprites } = titleBlock
+      ? parseTitleBlock(titleBlock, node)
+      : { text: "", sprites: [] as TitleSprite[] };
     // Added: the list skin dropped the "添加时间:" label — the relative time
     // now sits as `- 28 小时 前 <br` after the voting icon span following
     // the card link. Anchor after `</a>` so title text can't false-match.
@@ -272,7 +307,8 @@ export function extractCards(html: string): RawCard[] {
     const comments = block.match(/留言:\s*<\/span>\s*([\d,]+)/);
     cards.push({
       viewkey: starts[i].viewkey,
-      title: title ? stripTags(title[1]) : "",
+      title: text,
+      titleSprites: sprites,
       cover: img ? img[1] : "",
       duration: dur ? dur[1].trim() : "",
       added: added ? added[1].replace(/\s+/g, " ").trim() : "",
@@ -298,7 +334,7 @@ export type RawFeedPage = {
  * same viewkeys — those cards are dropped (verified: the visible grid's
  * playvthumb/id/title all match the video page, the decoy's don't).
  */
-export function parseFeedPage(html: string): RawFeedPage {
+export function parseFeedPage(html: string, node: string): RawFeedPage {
   const sectionEnd = html.indexOf('<div id="paging"');
   const section = sectionEnd > 0 ? html.slice(0, sectionEnd) : html;
 
@@ -329,7 +365,7 @@ export function parseFeedPage(html: string): RawFeedPage {
 
   const seen = new Set<string>();
   const items: RawCard[] = [];
-  for (const c of extractCards(section)) {
+  for (const c of extractCards(section, node)) {
     if (c.grid === "8") continue; // hidden decoy grid
     if (seen.has(c.viewkey)) continue;
     seen.add(c.viewkey);
@@ -408,6 +444,8 @@ export type RawVideo = { url: string; id: string; poster: string };
  */
 export type PageMeta = {
   title: string;
+  /** Image parts of the title (standard page renders titles as sprites). */
+  titleSprites: TitleSprite[];
   description: string;
   author: string;
   /** "YYYY-MM-DD" (the HD page's 添加时间 — real, verified). */
@@ -440,11 +478,27 @@ export function extractPageMeta(
   html: string,
   selfViewkey: string,
   vid: string,
+  node: string,
 ): PageMeta {
-  // <title> carries the clean title + site suffix; strip the suffix.
-  const titleTag = html.match(/<title>([^<]*)<\/title>/);
-  let title = titleTag ? decodeEntities(titleTag[1]).trim() : "";
-  title = title.replace(/\s*[-|]\s*91porn\s*$/i, "").trim();
+  // The video title: the current skin puts it in
+  // `<h4 class="login_register_header">`. The HD page carries it as plain
+  // text; the standard page renders it as one or more masked PNG sprites
+  // (no text in the HTML). Older skins put it in `<title>`.
+  let title = "";
+  let titleSprites: TitleSprite[] = [];
+  const h4 = html.match(/<h4 class="login_register_header"[^>]*>([\s\S]*?)<\/h4>/);
+  if (h4) {
+    const t = parseTitleBlock(h4[1], node);
+    title = t.text;
+    titleSprites = t.sprites;
+  }
+  if (!title && titleSprites.length === 0) {
+    // <title> carries the clean title + site suffix (older skin); strip it.
+    const titleTag = html.match(/<title>([^<]*)<\/title>/);
+    title = titleTag
+      ? decodeEntities(titleTag[1]).trim().replace(/\s*[-|]\s*91porn\s*$/i, "").trim()
+      : "";
+  }
 
   // Description: #v_desc (unquoted attribute). The site appends anti-scam
   // boilerplate ("91版主提醒您：…") — cut at the marker, keep the rest.
@@ -479,17 +533,18 @@ export function extractPageMeta(
   // are skipped via the `seen` seed.
   const seen = new Set([selfViewkey]);
   const recommendations: RawCard[] = [];
-  for (const c of extractCards(html)) {
+  for (const c of extractCards(html, node)) {
     if (recommendations.length >= 8) break;
     if (c.grid === "8") continue; // decoy grid (category-page layout)
     if (seen.has(c.viewkey)) continue;
-    if (!c.title) continue;
+    if (!c.title && c.titleSprites.length === 0) continue;
     seen.add(c.viewkey);
     recommendations.push(c);
   }
 
   return {
     title,
+    titleSprites,
     description,
     author: stripTags(author),
     published,
@@ -516,9 +571,13 @@ export type StdPage = {
   flagged: boolean;
 };
 
-export function parseStdPage(html: string, selfViewkey: string): StdPage {
+export function parseStdPage(
+  html: string,
+  selfViewkey: string,
+  node: string,
+): StdPage {
   const vid = html.match(/id=VID[^>]*>\s*(\d+)\s*<\/div>/)?.[1] ?? "";
-  const meta = extractPageMeta(html, selfViewkey, vid);
+  const meta = extractPageMeta(html, selfViewkey, vid, node);
   const videoUrl = extractStrencode2(html);
   const poster =
     html.match(/<video[^>]*poster="([^"]+)"/)?.[1] ??
@@ -539,12 +598,16 @@ export function parseStdPage(html: string, selfViewkey: string): StdPage {
  * author, 添加时间, duration, stats, description and recommendations to any
  * client. The VID (→ poster) sits in the comment-loading script.
  */
-export function parseHdPage(html: string, selfViewkey: string): PageMeta {
+export function parseHdPage(
+  html: string,
+  selfViewkey: string,
+  node: string,
+): PageMeta {
   const vid =
     html.match(/show_comments2\.php\?VID=(\d+)/)?.[1] ??
     html.match(/id=VID[^>]*>\s*(\d+)\s*<\/div>/)?.[1] ??
     "";
-  return extractPageMeta(html, selfViewkey, vid);
+  return extractPageMeta(html, selfViewkey, vid, node);
 }
 
 /* ------------------------------------------------------------------ *
@@ -581,7 +644,7 @@ async function fetchHdMetas(
             url,
             `${node}/view_video.php?viewkey=${item.viewkey}`,
           );
-          const meta = parseHdPage(html, item.viewkey);
+          const meta = parseHdPage(html, item.viewkey, node);
           return meta.title && !isFlaggedPage(meta.title) ? meta : null;
         } catch {
           return null;
@@ -668,6 +731,7 @@ function toArticle(
   path: string,
   a: {
     title: string;
+    titleSprites: TitleSprite[];
     description: string;
     author: string;
     published: string;
@@ -697,6 +761,7 @@ function toArticle(
       rec: {
         path: `/view/${r.viewkey}/`,
         title: r.title,
+        titleSprites: r.titleSprites.length ? r.titleSprites : undefined,
         cover: r.cover || undefined,
       },
     });
@@ -705,6 +770,7 @@ function toArticle(
   const recommendations: Recommendation[] = a.recommendations.map((r) => ({
     path: `/view/${r.viewkey}/`,
     title: r.title,
+    titleSprites: r.titleSprites.length ? r.titleSprites : undefined,
     cover: r.cover || undefined,
   }));
 
@@ -712,6 +778,7 @@ function toArticle(
     src: "91porn",
     path,
     title: a.title,
+    titleSprites: a.titleSprites.length ? a.titleSprites : undefined,
     description: a.description || undefined,
     author: a.author || undefined,
     published: a.published || undefined,
@@ -750,7 +817,7 @@ export const nineOneSource: Source = {
     const node = nodeForRequest(nodeOverride);
     const url = buildFeedUrl(path, page, node);
     const html = await fetchText(url, node + "/");
-    const raw = parseFeedPage(html);
+    const raw = parseFeedPage(html, node);
     const now = Date.now();
 
     const flagged = raw.items.some((i) => isFlaggedPage(i.title));
@@ -759,6 +826,7 @@ export const nineOneSource: Source = {
     const metas = flagged ? await fetchHdMetas(node, raw.items) : null;
 
     const items: FeedItem[] = raw.items.map((i, idx) => {
+      const sprites = i.titleSprites.length ? i.titleSprites : undefined;
       if (!flagged) {
         const epoch = relativeToEpoch(i.added, now);
         const meta: string[] = [];
@@ -768,6 +836,7 @@ export const nineOneSource: Source = {
           id: i.viewkey,
           path: `/view/${i.viewkey}/`,
           title: i.title,
+          titleSprites: sprites,
           cover: i.cover || undefined,
           published: epoch ? new Date(epoch).toISOString() : undefined,
           meta: meta.length ? meta : undefined,
@@ -780,7 +849,8 @@ export const nineOneSource: Source = {
       return {
         id: i.viewkey,
         path: `/view/${i.viewkey}/`,
-        title: m?.title || "",
+        title: m?.title || i.title,
+        titleSprites: sprites,
         cover: i.cover || undefined,
         published: m?.published
           ? new Date(`${m.published}T00:00:00Z`).toISOString()
@@ -808,11 +878,13 @@ export const nineOneSource: Source = {
       fetchText(stdUrl, node + "/").catch(() => null),
       fetchText(hdUrl, stdUrl).catch(() => null),
     ]);
-    const std = stdHtml ? parseStdPage(stdHtml, vk[1]) : null;
+    const std = stdHtml ? parseStdPage(stdHtml, vk[1], node) : null;
     const hd = hdHtml
-      ? parseHdPage(hdHtml, vk[1])
+      ? parseHdPage(hdHtml, vk[1], node)
       : null;
-    const hdUsable = hd ? hd.title && !isFlaggedPage(hd.title) : false;
+    const hdUsable = hd
+      ? (hd.title || hd.titleSprites.length > 0) && !isFlaggedPage(hd.title)
+      : false;
 
     if (!std && !hdUsable) {
       throw new HttpError(502, "could not fetch video page");
@@ -825,6 +897,7 @@ export const nineOneSource: Source = {
       hdUsable ? hd! : std && !std.flagged ? std.meta : null;
     const stdMeta = std?.meta;
     const title = meta?.title ?? "";
+    const titleSprites = meta?.titleSprites ?? [];
     const description = meta?.description || stdMeta?.description || "";
     const author = meta?.author ?? "";
     const published = meta?.published ?? "";
@@ -845,11 +918,12 @@ export const nineOneSource: Source = {
       ? { url: videoUrl, id: vid, poster }
       : null;
 
-    if (!video && !title) {
+    if (!video && !title && titleSprites.length === 0) {
       throw new HttpError(502, "video source not found on page");
     }
     return toArticle(`/view/${vk[1]}/`, {
       title,
+      titleSprites,
       description,
       author,
       published,
@@ -859,6 +933,11 @@ export const nineOneSource: Source = {
   },
 
   matchArticle: (value) => matchArticleValue(value),
+
+  // Title sprites are served from the node's own host (/ti/...). Route them
+  // through /api/img so the browser doesn't need direct access to the node
+  // (the user's region may not reach it, and the domain may be blocked).
+  imageHosts: (host) => host === new URL(N91_BASE).hostname,
 };
 
 /* ------------------------------------------------------------------ *

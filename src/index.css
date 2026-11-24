@@ -1057,6 +1057,20 @@ code {
   text-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
 }
 
+/* 91porn title sprites: the sprite PNG carves out the glyphs (mask-image)
+   and currentColor paints them, so the title inherits the theme/hover color
+   just like a text title. */
+.title-sprite {
+  display: inline-block;
+  height: 1.375em;
+  background-color: currentColor;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  vertical-align: -0.32em;
+}
+
 .feed-meta {
   display: flex;
   flex-wrap: wrap;

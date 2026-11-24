@@ -24,8 +24,22 @@ export interface Recommendation {
   /** Canonical article path within the source (e.g. `/archives/<id>/`). */
   path: string;
   title: string;
+  /** Image parts of the title, rendered as masked sprites after `title`. */
+  titleSprites?: TitleSprite[];
   cover?: string;
   desc?: string;
+}
+
+/**
+ * One part of a title rendered as a CSS-masked image sprite (91porn list /
+ * standard pages). The browser paints it with `background-color: currentColor`
+ * + `mask-image`, so it inherits the theme text color like real text.
+ */
+export interface TitleSprite {
+  /** Absolute URL of the sprite PNG (routed through /api/img when proxied). */
+  url: string;
+  /** CSS width of the sprite element (e.g. "24.688em"). */
+  width: string;
 }
 
 export interface VideoBlock {
@@ -61,6 +75,8 @@ export interface Article {
   /** Canonical path within the source. */
   path: string;
   title: string;
+  /** Image parts of the title, rendered as masked sprites after `title`. */
+  titleSprites?: TitleSprite[];
   description?: string;
   author?: string;
   published?: string;
@@ -85,6 +101,8 @@ export interface FeedItem {
   id: string;
   path: string;
   title: string;
+  /** Image parts of the title, rendered as masked sprites after `title`. */
+  titleSprites?: TitleSprite[];
   cover?: string;
   published?: string;
   /** Up to a few clickable chips rendered under the title. */
