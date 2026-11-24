@@ -341,15 +341,26 @@ export function parseFeedPage(html: string): RawFeedPage {
   return { total, totalPages, items };
 }
 
-/** Category nav (最新 + the site's own nav order) as normalized paths. */
+/** Category nav (视频/最新 + the site's own nav order) as normalized paths. */
 export function parseNavCategories(html: string): SiteCategory[] {
-  const out: SiteCategory[] = [{ path: "/category/mr/", name: "最新" }];
+  // The "视频" tab is the default list (v.php with no category =
+  // category=mr, verified identical page-by-page) — it is not itself in
+  // the category list, so pin it first; the link text comes from the
+  // `v.php?next=watch` nav link when present.
+  const videoLink = html.match(
+    /href="[^"]*v\.php\?next=watch[^"]*"[^>]*>\s*([^<]+?)\s*</i,
+  );
+  const out: SiteCategory[] = [
+    { path: "/category/mr/", name: decodeEntities(videoLink?.[1] ?? "").trim() || "最新" },
+  ];
   const seen = new Set(["/category/mr/"]);
+  // `viewtype=basic` is `viewtype=Basic` on the new skin — match case-
+  // insensitively (same for `&m=-1`).
   for (const m of html.matchAll(
-    /href="https?:\/\/[^"]*v\.php\?category=([a-z]+)(?:&m=-1)?&viewtype=basic"[^>]*>\s*([^<]+?)\s*</g,
+    /href="https?:\/\/[^"]*v\.php\?category=([a-z]+)(?:&m=-1)?&viewtype=basic"[^>]*>\s*([^<]+?)\s*</gi,
   )) {
     const cat = m[1];
-    const slug = /&m=-1/.test(m[0]) ? "top-monthly" : cat;
+    const slug = /&m=-1/i.test(m[0]) ? "top-monthly" : cat;
     if (!CATEGORY_QUERIES[slug]) continue; // future unknown slug — skip
     const path = `/category/${slug}/`;
     const name = decodeEntities(m[2].trim());
