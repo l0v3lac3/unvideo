@@ -338,8 +338,11 @@ export default function App() {
       <footer className="app-footer">
         <p>
           页面抓取、媒体转换与签名均在 Convex 服务端完成（<code>/api/site</code>
-          、<code>/api/feed</code>、<code>/api/article</code>、
-          <code>/api/video</code>、<code>/api/media</code>、
+          、{'\u200b'}
+          <code>/api/feed</code>、{'\u200b'}
+          <code>/api/article</code>、{'\u200b'}
+          <code>/api/video</code>、{'\u200b'}
+          <code>/api/media</code>、{'\u200b'}
           <code>/api/img</code>），前端只做渲染。
         </p>
       </footer>
