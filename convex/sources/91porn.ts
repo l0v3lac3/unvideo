@@ -303,12 +303,26 @@ export function parseFeedPage(html: string): RawFeedPage {
   const section = sectionEnd > 0 ? html.slice(0, sectionEnd) : html;
 
   let total = 0;
-  let maxPageLink = 0;
   const tot = section.match(
     /(?:视频|Videos|搜索结果|Result Videos)\s*(\d+)\s*[-–]\s*(\d+)\s*(?:的|of)\s*([\d,]+)/,
   );
   if (tot) total = Number(tot[3].replace(/,/g, ""));
-  for (const m of section.matchAll(/page=(\d+)/g)) {
+
+  // Trust the site's own pager, not the "of N" total text:
+  // - v.php category lists only serve the latest 12 pages (288 videos);
+  //   the server clamps any deeper page to the last one (verified:
+  //   ?page=13/20 all return page 12's content), and "of N" there is a
+  //   site-wide count, not the browsable one (e.g. "…的 150678" for 12
+  //   browsable pages).
+  // - Search lists are fully browsable and the pager's last link is the
+  //   true last page.
+  // The pager window is a sliding ~11-link window (page 1 shows 1..11,
+  // page 12 shows …10 11 12), so the max link on page 1 is one short of
+  // the true max — self-corrects once a later page is fetched. Scanning
+  // the full HTML is safe: card links only ever point at the current page
+  // (which the window always contains).
+  let maxPageLink = 0;
+  for (const m of html.matchAll(/page=(\d+)/g)) {
     const n = Number(m[1]);
     if (n > maxPageLink) maxPageLink = n;
   }
@@ -322,10 +336,8 @@ export function parseFeedPage(html: string): RawFeedPage {
     items.push(c);
   }
 
-  const totalPages = Math.max(
-    total > 0 ? Math.ceil(total / PAGE_SIZE) : 1,
-    maxPageLink,
-  );
+  const fromTotal = total > 0 ? Math.ceil(total / PAGE_SIZE) : 1;
+  const totalPages = maxPageLink > 0 ? Math.min(fromTotal, maxPageLink) : fromTotal;
   return { total, totalPages, items };
 }
 
