@@ -94,15 +94,29 @@ const FETCH_HEADERS: Record<string, string> = {
   Accept: "*/*",
 };
 
+/**
+ * Optional logged-in session cookie (Convex env `N91_COOKIES`). 91porn gates
+ * videos newer than ~3 days behind login; the cookie unlocks their stream
+ * URL. Applied only to the standard page + /vlk.php (the video path) so a
+ * stale cookie degrades to the "gated" note instead of breaking the feed.
+ */
+function loginCookie(): string | undefined {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  return env?.N91_COOKIES || undefined;
+}
+
 async function fetchText(
   target: string,
   referer: string | undefined,
+  cookie: string | undefined = undefined,
 ): Promise<string> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  const headers: Record<string, string> = { ...FETCH_HEADERS, Referer: referer ?? "" };
+  if (cookie) headers["Cookie"] = cookie;
   try {
     const res = await fetch(target, {
-      headers: { ...FETCH_HEADERS, Referer: referer ?? "" },
+      headers,
       signal: ctrl.signal,
       redirect: "follow",
     });
@@ -696,18 +710,21 @@ async function fetchVlkUrl(
   });
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  const headers: Record<string, string> = {
+    ...FETCH_HEADERS,
+    "Content-Type": "text/plain",
+    Origin: node,
+    Referer: `${node}/view_video.php?viewkey=${viewkey}`,
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+  };
+  const cookie = loginCookie();
+  if (cookie) headers["Cookie"] = cookie;
   try {
     const res = await fetch(node + "/vlk.php", {
       method: "POST",
-      headers: {
-        ...FETCH_HEADERS,
-        "Content-Type": "text/plain",
-        Origin: node,
-        Referer: `${node}/view_video.php?viewkey=${viewkey}`,
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-      },
+      headers,
       body,
       signal: ctrl.signal,
     });
@@ -878,7 +895,9 @@ export const nineOneSource: Source = {
     const hdUrl = `${node}/view_video_hd.php?viewkey=${vk[1]}`;
 
     const [stdHtml, hdHtml] = await Promise.all([
-      fetchText(stdUrl, node + "/").catch(() => null),
+      // The standard page carries the stream URL; it needs the login cookie
+      // for recent (login-gated) videos. The HD page is ungated metadata.
+      fetchText(stdUrl, node + "/", loginCookie()).catch(() => null),
       fetchText(hdUrl, stdUrl).catch(() => null),
     ]);
     const std = stdHtml ? parseStdPage(stdHtml, vk[1], node) : null;
