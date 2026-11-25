@@ -736,6 +736,7 @@ function toArticle(
     author: string;
     published: string;
     video: RawVideo | null;
+    videoNote: string | null;
     recommendations: RawCard[];
   },
 ): Article {
@@ -750,6 +751,8 @@ function toArticle(
         poster: a.video.poster || undefined,
       },
     });
+  } else if (a.videoNote) {
+    blocks.push({ type: "p", text: a.videoNote });
   }
   if (a.description) blocks.push({ type: "p", text: a.description });
 
@@ -918,6 +921,17 @@ export const nineOneSource: Source = {
       ? { url: videoUrl, id: vid, poster }
       : null;
 
+    // The site gates recent videos behind login ("guests can watch videos
+    // from 3+ days ago"). Gated pages carry that notice; when the video URL
+    // is absent and the page is gated, surface the reason instead of
+    // silently showing no player.
+    const gated = /游客可以观看|仅限登录用户观看/.test(stdHtml || "");
+    const videoNote: string | null = video
+      ? null
+      : gated
+        ? "⚠️ 该视频过新（近 3 天），91porn 目前仅限登录用户观看，游客只能看 3 天前的视频。"
+        : "⚠️ 该视频没有可解析的视频源。";
+
     if (!video && !title && titleSprites.length === 0) {
       throw new HttpError(502, "video source not found on page");
     }
@@ -928,6 +942,7 @@ export const nineOneSource: Source = {
       author,
       published,
       video,
+      videoNote,
       recommendations,
     });
   },
